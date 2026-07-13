@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy this file to config.json (same directory as extension.mjs) to activate custom config.",
+  "outputDir": "copilot-response-log",
+  "filenamePattern": "{timestamp}-{prompt30}.md",
+  "includeAllMessages": false,
+  "fileFormat": "md"
+}
