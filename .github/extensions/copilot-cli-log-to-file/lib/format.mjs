@@ -222,9 +222,23 @@ function emitDoubleQuotedFull(value) {
  *   - Entirely whitespace (spaces/tabs/newlines) — would lose all content.
  *   - Any non-empty line that consists solely of whitespace — YAML treats such lines
  *     as blank (empty) lines in block scalars, discarding their whitespace content.
+ *   - Contains a control character that is illegal inside a YAML block scalar.
+ *     Legal low-range chars are 0x09 (tab) and 0x0A (newline); everything else in
+ *     0x00–0x1F, plus 0x7F (DEL) and 0x80–0x9F (C1), must be escaped → double-quoted.
  */
+function hasUnprintable(str) {
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    if ((c >= 0x00 && c <= 0x08) || c === 0x0b || c === 0x0c ||
+        (c >= 0x0e && c <= 0x1f) || c === 0x7f ||
+        (c >= 0x80 && c <= 0x9f)) return true;
+  }
+  return false;
+}
+
 function isBlockSafe(normalizedValue) {
   if (/^\s*$/.test(normalizedValue)) return false;
+  if (hasUnprintable(normalizedValue)) return false;
   const lines = normalizedValue.split("\n");
   return !lines.some((l) => l.length > 0 && /^\s+$/.test(l));
 }

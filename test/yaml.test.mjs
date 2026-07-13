@@ -336,7 +336,42 @@ console.error("\nTrailing newline preservation:");
   assert("message two-trailing-newlines preserved", roundTripMsg(v2), v2);
 }
 
-// ─── Summary ─────────────────────────────────────────────────────────────────
+// ─── Embedded control characters (double-quoted fallback) ────────────────────
+console.error("\nEmbedded control characters:");
+{
+  // The repro case from the adversarial review
+  const v1 = "emoji 🚀 and \u0001 ctrl";
+  const { parsed: p1 } = roundTrip(v1, v1);
+  assert("prompt U+0001 mid-line round-trips", p1.prompt, v1);
+  assert("response U+0001 mid-line round-trips", p1.response, v1);
+  assert("message U+0001 mid-line round-trips", roundTripMsg(v1), v1);
+
+  // Tab (0x09) is legal in block scalars — must still round-trip correctly
+  const v2 = "tab\there";
+  const { parsed: p2 } = roundTrip(v2, v2);
+  assert("prompt tab round-trips", p2.prompt, v2);
+  assert("response tab round-trips", p2.response, v2);
+
+  // BEL (0x07) — C0 control, must go through double-quoted path
+  const v3 = "bell\u0007end";
+  const { parsed: p3 } = roundTrip(v3, v3);
+  assert("prompt BEL round-trips", p3.prompt, v3);
+  assert("response BEL round-trips", p3.response, v3);
+
+  // NUL (0x00) — C0 control, must go through double-quoted path
+  const v4 = "null\u0000end";
+  const { parsed: p4 } = roundTrip(v4, v4);
+  assert("prompt NUL round-trips", p4.prompt, v4);
+  assert("response NUL round-trips", p4.response, v4);
+
+  // DEL (0x7F) — must go through double-quoted path
+  const v5 = "del\u007fend";
+  const { parsed: p5 } = roundTrip(v5, v5);
+  assert("prompt DEL round-trips", p5.prompt, v5);
+  assert("response DEL round-trips", p5.response, v5);
+}
+
+
 console.error(`\n${"─".repeat(50)}`);
 console.error(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
