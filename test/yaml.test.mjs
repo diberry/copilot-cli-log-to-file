@@ -236,6 +236,106 @@ console.error("\nLone CR normalization:");
   assert("lone CR prompt normalizes to LF", parsed.prompt, expected);
 }
 
+// ─── Helper: round-trip a value as a sequence message ────────────────────────
+function roundTripMsg(msgValue) {
+  const { parsed } = roundTrip("p", "r", [msgValue]);
+  return parsed.messages ? parsed.messages[0] : undefined;
+}
+
+// ─── Leading-space values ─────────────────────────────────────────────────────
+console.error("\nLeading-space values:");
+{
+  const v1 = " content";
+  const { parsed: p1 } = roundTrip(v1, v1);
+  assert("prompt single-leading-space round-trips", p1.prompt, v1);
+  assert("response single-leading-space round-trips", p1.response, v1);
+  assert("message single-leading-space round-trips", roundTripMsg(v1), v1);
+
+  const v2 = "  code";
+  const { parsed: p2 } = roundTrip(v2, v2);
+  assert("prompt two-leading-spaces round-trips", p2.prompt, v2);
+  assert("response two-leading-spaces round-trips", p2.response, v2);
+  assert("message two-leading-spaces round-trips", roundTripMsg(v2), v2);
+}
+
+// ─── Indented code block ──────────────────────────────────────────────────────
+console.error("\nIndented code block:");
+{
+  const v = "    if x:\n        y";
+  const { parsed } = roundTrip(v, v);
+  assert("prompt indented-code round-trips", parsed.prompt, v);
+  assert("response indented-code round-trips", parsed.response, v);
+  assert("message indented-code round-trips", roundTripMsg(v), v);
+}
+
+// ─── Interior indentation (first line not indented) ──────────────────────────
+console.error("\nInterior indentation:");
+{
+  const v = "line1\n  line2 indented\nline3";
+  const { parsed } = roundTrip(v, v);
+  assert("prompt interior-indent round-trips", parsed.prompt, v);
+  assert("response interior-indent round-trips", parsed.response, v);
+  assert("message interior-indent round-trips", roundTripMsg(v), v);
+}
+
+// ─── Whitespace-only values (double-quoted fallback) ─────────────────────────
+console.error("\nWhitespace-only values:");
+{
+  const v1 = "     ";
+  const { parsed: p1 } = roundTrip(v1, v1);
+  assert("prompt spaces-only round-trips", p1.prompt, v1);
+  assert("response spaces-only round-trips", p1.response, v1);
+  assert("message spaces-only round-trips", roundTripMsg(v1), v1);
+
+  const v2 = "\t\t";
+  const { parsed: p2 } = roundTrip(v2, v2);
+  assert("prompt tabs-only round-trips", p2.prompt, v2);
+  assert("response tabs-only round-trips", p2.response, v2);
+  assert("message tabs-only round-trips", roundTripMsg(v2), v2);
+}
+
+// ─── Newline-only values (double-quoted fallback) ─────────────────────────────
+console.error("\nNewline-only values:");
+{
+  const v1 = "\n";
+  const { parsed: p1 } = roundTrip(v1, v1);
+  assert("prompt single-newline round-trips", p1.prompt, v1);
+  assert("response single-newline round-trips", p1.response, v1);
+  assert("message single-newline round-trips", roundTripMsg(v1), v1);
+
+  const v2 = "\n\n";
+  const { parsed: p2 } = roundTrip(v2, v2);
+  assert("prompt double-newline round-trips", p2.prompt, v2);
+  assert("response double-newline round-trips", p2.response, v2);
+  assert("message double-newline round-trips", roundTripMsg(v2), v2);
+}
+
+// ─── Trailing spaces on the last/only line ────────────────────────────────────
+console.error("\nTrailing spaces on last line:");
+{
+  const v = "trailing space line ends here   ";
+  const { parsed } = roundTrip(v, v);
+  assert("prompt trailing-spaces-last-line round-trips", parsed.prompt, v);
+  assert("response trailing-spaces-last-line round-trips", parsed.response, v);
+  assert("message trailing-spaces-last-line round-trips", roundTripMsg(v), v);
+}
+
+// ─── Trailing newline preservation ───────────────────────────────────────────
+console.error("\nTrailing newline preservation:");
+{
+  const v1 = "ends with newline\n";
+  const { parsed: p1 } = roundTrip(v1, v1);
+  assert("prompt one-trailing-newline preserved", p1.prompt, v1);
+  assert("response one-trailing-newline preserved", p1.response, v1);
+  assert("message one-trailing-newline preserved", roundTripMsg(v1), v1);
+
+  const v2 = "ends with two newlines\n\n";
+  const { parsed: p2 } = roundTrip(v2, v2);
+  assert("prompt two-trailing-newlines preserved", p2.prompt, v2);
+  assert("response two-trailing-newlines preserved", p2.response, v2);
+  assert("message two-trailing-newlines preserved", roundTripMsg(v2), v2);
+}
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.error(`\n${"─".repeat(50)}`);
 console.error(`Results: ${passed} passed, ${failed} failed`);

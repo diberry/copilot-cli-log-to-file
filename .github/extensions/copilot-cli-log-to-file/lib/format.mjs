@@ -195,19 +195,109 @@ function emitDoubleQuoted(value) {
 }
 
 /**
- * Emit a YAML literal block scalar value (the part that follows "key: ").
- * Uses |- (strip chomp) — the YAML parser strips all trailing newlines.
- * If value is empty, returns `""` (double-quoted empty string instead of
- * an ambiguous empty block scalar).
+ * Emit a double-quoted YAML scalar with full escaping for arbitrary string values.
+ * Handles backslash, double-quote, and all control characters.
+ */
+function emitDoubleQuotedFull(value) {
+  let result = "";
+  for (const ch of value) {
+    const code = ch.charCodeAt(0);
+    if (ch === "\\") result += "\\\\";
+    else if (ch === '"') result += '\\"';
+    else if (ch === "\n") result += "\\n";
+    else if (ch === "\r") result += "\\r";
+    else if (ch === "\t") result += "\\t";
+    else if (ch === "\b") result += "\\b";
+    else if (ch === "\f") result += "\\f";
+    else if (code < 0x20 || (code >= 0x7f && code <= 0x9f))
+      result += `\\u${code.toString(16).padStart(4, "0")}`;
+    else result += ch;
+  }
+  return '"' + result + '"';
+}
+
+/**
+ * Returns true if a normalized value can be safely emitted as a literal block scalar.
+ * Block-unsafe conditions:
+ *   - Entirely whitespace (spaces/tabs/newlines) — would lose all content.
+ *   - Any non-empty line that consists solely of whitespace — YAML treats such lines
+ *     as blank (empty) lines in block scalars, discarding their whitespace content.
+ */
+function isBlockSafe(normalizedValue) {
+  if (/^\s*$/.test(normalizedValue)) return false;
+  const lines = normalizedValue.split("\n");
+  return !lines.some((l) => l.length > 0 && /^\s+$/.test(l));
+}
+
+/**
+ * Emit a YAML block scalar or double-quoted scalar for an arbitrary string value.
+ *
+ * Strategy:
+ *  - Empty string → `""` (double-quoted empty).
+ *  - Not block-safe (entirely whitespace, or has whitespace-only content lines)
+ *    → double-quoted scalar with full escaping (always lossless).
+ *  - Otherwise → literal block scalar with an EXPLICIT INDENTATION INDICATOR
+ *    (`|<N>`) to avoid YAML's auto-detect ambiguity when the first content line
+ *    has leading whitespace.  Chomping:
+ *      0 trailing newlines → strip `|<N>-`
+ *      1 trailing newline  → clip  `|<N>` (default)
+ *      2+ trailing newlines → keep `|<N>+`
+ *    Blank content lines are emitted as truly empty lines (no indent spaces) so
+ *    they don't introduce spurious whitespace-only lines.
+ *
+ * Note on keep (+) accounting: the caller always appends `\n` after this value,
+ * which creates exactly one blank line in the YAML source.  That blank line
+ * contributes one trailing newline under keep-chomp.  So we emit (trailingNL − 1)
+ * explicit blank lines; the caller's `\n` covers the remaining one.
  *
  * @param {string} value    Raw value; may contain colons, hashes, quotes, tabs, unicode.
  * @param {string} indent   Spaces to prepend to each content line, e.g. "  " or "    ".
- * @returns {string}        e.g. `|-\n  line1\n  line2`
+ * @returns {string}        Block-scalar header+body, or a double-quoted scalar.
  */
 function emitBlockScalarValue(value, indent) {
   if (value === "") return '""';
-  const lines = normalizeEol(value).split("\n");
-  return "|-\n" + lines.map((l) => indent + l).join("\n");
+
+  const normalized = normalizeEol(value);
+
+  if (!isBlockSafe(normalized)) {
+    return emitDoubleQuotedFull(normalized);
+  }
+
+  // Count trailing newlines
+  let trailingNL = 0;
+  let i = normalized.length - 1;
+  while (i >= 0 && normalized[i] === "\n") {
+    trailingNL++;
+    i--;
+  }
+
+  // Choose chomping character
+  let chomp;
+  if (trailingNL === 0) chomp = "-";
+  else if (trailingNL === 1) chomp = "";
+  else chomp = "+";
+
+  // Strip trailing newlines to get the content portion
+  const contentValue = trailingNL > 0 ? normalized.slice(0, -trailingNL) : normalized;
+
+  // Emit each content line indented; blank lines (empty string segments) stay empty
+  const contentLines = contentValue.split("\n");
+  const emittedLines = contentLines.map((l) => (l === "" ? "" : indent + l));
+  let emittedContent = emittedLines.join("\n");
+
+  // For keep (+), the caller's trailing \n provides 1 blank line; emit the rest explicitly
+  if (chomp === "+") {
+    emittedContent += "\n".repeat(trailingNL - 1);
+  }
+
+  // The YAML explicit indentation indicator is *relative*: content indent = contextN + indicator.
+  // We always use 2 as the relative indicator.  Content lines are indented by `indent`
+  // (= contextN + 2 spaces), so YAML will strip exactly `indent.length` spaces.
+  // Contexts used here: top-level keys (n=0, indent="  ") and sequence items (n=2, indent="    "),
+  // both resulting in relative indicator 2.
+  const indicator = 2;
+
+  return `|${indicator}${chomp}\n${emittedContent}`;
 }
 
 /**
@@ -231,12 +321,7 @@ function buildYamlContent(data, includeAllMessages) {
   if (includeAllMessages && allMessages.length > 0) {
     out += "messages:\n";
     for (const msg of allMessages) {
-      if (msg === "") {
-        out += '  - ""\n';
-      } else {
-        const lines = normalizeEol(msg).split("\n");
-        out += "  - |-\n" + lines.map((l) => "    " + l).join("\n") + "\n";
-      }
+      out += "  - " + emitBlockScalarValue(msg, "    ") + "\n";
     }
   }
 

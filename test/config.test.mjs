@@ -232,9 +232,9 @@ const baseData = {
   assertContains("yaml: contains timestamp key", out, "timestamp:");
   assertContains("yaml: timestamp is double-quoted", out, '"2026-07-13T11:21:45.000Z"');
   assertContains("yaml: contains sessionId", out, "abcdef1234567890");
-  assertContains("yaml: contains prompt block scalar header", out, "prompt: |-");
+  assertContains("yaml: contains prompt block scalar header", out, "prompt: |2-");
   assertContains("yaml: contains prompt text", out, "List all my files");
-  assertContains("yaml: contains response block scalar header", out, "response: |-");
+  assertContains("yaml: contains response block scalar header", out, "response: |2-");
   assertContains("yaml: contains assistant response", out, "Here are your files: foo bar");
   assertNotContains("yaml: no markdown frontmatter separator", out, "---\n");
 }
