@@ -116,6 +116,17 @@ Here are your files: ...
 
 ---
 
+## Running tests
+
+No test runner or `npm install` needed. Run each file directly with Node.js:
+
+```bash
+node test/tokens.test.mjs   # sanitizePrompt, formatTimestamp, substituteTokens, sanitizeFilename, resolveCollision
+node test/config.test.mjs   # loadConfig, buildFileContent, resolveOutputDir
+```
+
+---
+
 ## SDK note
 
 `@github/copilot-sdk` is **not** an npm dependency. It is provided by the Copilot CLI at runtime and only resolves when run inside the CLI. Do not run `npm install` — there are no dependencies.
@@ -136,7 +147,8 @@ stdout is reserved for the CLI's JSON-RPC protocol. **Never use `console.log()`*
   config.example.json   # Documented config template
 
 test/
-  tokens.test.mjs       # Standalone Node.js tests for pure helpers
+  tokens.test.mjs       # Tests for sanitizePrompt, formatTimestamp, substituteTokens, sanitizeFilename, resolveCollision
+  config.test.mjs       # Tests for loadConfig, buildFileContent, resolveOutputDir
 
 package.json
 LICENSE

@@ -32,12 +32,16 @@ import {
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 
-/** @type {{ prompt: string, ts: Date, sessionId: string, workingDirectory: string } | null} */
+/** @type {{ prompt: string, ts: Date, sessionId: string, workingDirectory: string, id: number } | null} */
 let pending = null;
 /** @type {string | null} */
 let lastAssistant = null;
 /** @type {string[]} */
 let allMessages = [];
+
+// Idempotency guard: each turn gets a unique id; flushedTurnId tracks what was already written.
+let turnId = 0;
+let flushedTurnId = -1;
 
 // ─── Session ──────────────────────────────────────────────────────────────────
 
@@ -45,7 +49,8 @@ const session = await joinSession({
   tools: [],
   hooks: {
     onUserPromptSubmitted(input, invocation) {
-      pending = { prompt: input.prompt ?? "", ts: input.timestamp ?? new Date(), sessionId: invocation?.sessionId ?? "unknown", workingDirectory: input.workingDirectory ?? process.cwd() };
+      turnId += 1;
+      pending = { prompt: input.prompt ?? "", ts: input.timestamp ?? new Date(), sessionId: invocation?.sessionId ?? "unknown", workingDirectory: input.workingDirectory ?? process.cwd(), id: turnId };
       lastAssistant = null;
       allMessages = [];
     },
@@ -54,10 +59,15 @@ const session = await joinSession({
       // Final clean-up: if a turn was left pending (session ended before idle),
       // try to write whatever was captured.
       if (pending && lastAssistant) {
-        flushLog(session, pending, lastAssistant, allMessages).catch(() => {});
+        const snap = { ...pending };
+        const assistantSnap = lastAssistant;
+        const allSnap = [...allMessages];
         pending = null;
         lastAssistant = null;
         allMessages = [];
+        flushOnce(snap, assistantSnap, allSnap).catch((err) =>
+          session.log(`copilot-cli-log-to-file: onSessionEnd flush failed: ${err.message}`, { level: "error" })
+        );
       }
     },
   },
@@ -73,7 +83,7 @@ session.on("assistant.message", (event) => {
 });
 
 session.on("session.idle", async () => {
-  if (!pending || !lastAssistant) return;
+  if (!pending || !lastAssistant || lastAssistant.trim() === "") return;
 
   const snap = { ...pending };
   const assistantSnap = lastAssistant;
@@ -84,8 +94,21 @@ session.on("session.idle", async () => {
   lastAssistant = null;
   allMessages = [];
 
-  await flushLog(session, snap, assistantSnap, allSnap);
+  await flushOnce(snap, assistantSnap, allSnap);
 });
+
+// ─── Idempotency-guarded flush ────────────────────────────────────────────────
+
+/**
+ * Flush a turn at most once, even if both session.idle and onSessionEnd fire.
+ * Sets flushedTurnId before the first await so concurrent calls are blocked.
+ */
+async function flushOnce(snapPending, assistant, all) {
+  if (!snapPending || !assistant || assistant.trim() === "") return;
+  if (snapPending.id === flushedTurnId) return;
+  flushedTurnId = snapPending.id;
+  await flushLog(session, snapPending, assistant, all);
+}
 
 // ─── Core write logic ─────────────────────────────────────────────────────────
 
