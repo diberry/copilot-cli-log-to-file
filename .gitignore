@@ -1,0 +1,10 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Default extension output directory — don't accidentally commit logs
+copilot-response-log/
+
+# Editor
+.DS_Store
+.vscode/

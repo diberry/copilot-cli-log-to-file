@@ -1,0 +1,16 @@
+{
+  "name": "copilot-cli-log-to-file",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Copilot CLI extension that logs each final response to a timestamped file (configurable path + filename).",
+  "license": "MIT",
+  "author": "diberry",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/diberry/copilot-cli-log-to-file.git"
+  },
+  "note": "@github/copilot-sdk is provided by the Copilot CLI at runtime; it is NOT an npm dependency and must not be installed.",
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}
