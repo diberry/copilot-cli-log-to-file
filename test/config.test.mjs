@@ -79,9 +79,9 @@ for (const k of envKeys) {
   try {
     const cfg = loadConfig(tmp);
     assert("defaults: outputDir", cfg.outputDir, "copilot-response-log");
-    assert("defaults: filenamePattern", cfg.filenamePattern, "{timestamp}-{prompt30}.md");
+    assert("defaults: filenamePattern", cfg.filenamePattern, "{timestamp}-{prompt30}.yaml");
     assert("defaults: includeAllMessages", cfg.includeAllMessages, false);
-    assert("defaults: fileFormat", cfg.fileFormat, "md");
+    assert("defaults: fileFormat", cfg.fileFormat, "yaml");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -157,13 +157,25 @@ for (const k of envKeys) {
   }
 }
 
-// 5) Invalid fileFormat in config.json → falls back to "md"
+// 5) Invalid fileFormat in config.json → falls back to "yaml"
 {
   const tmp = mkdtempSync(join(tmpdir(), "clt-test-"));
   try {
     writeFileSync(join(tmp, "config.json"), JSON.stringify({ fileFormat: "json" }), "utf8");
     const cfg = loadConfig(tmp);
-    assert("invalid fileFormat falls back to md", cfg.fileFormat, "md");
+    assert("invalid fileFormat falls back to yaml", cfg.fileFormat, "yaml");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// 5b) Legacy "md" fileFormat in config.json → maps to "yaml" for back-compat
+{
+  const tmp = mkdtempSync(join(tmpdir(), "clt-test-"));
+  try {
+    writeFileSync(join(tmp, "config.json"), JSON.stringify({ fileFormat: "md" }), "utf8");
+    const cfg = loadConfig(tmp);
+    assert("legacy md fileFormat maps to yaml", cfg.fileFormat, "yaml");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -214,13 +226,24 @@ const baseData = {
   allMessages: [],
 };
 
-// md format
+// yaml format (default, and also what "md" maps to for back-compat)
+{
+  const out = buildFileContent(baseData, "yaml", false);
+  assertContains("yaml: contains timestamp key", out, "timestamp:");
+  assertContains("yaml: timestamp is double-quoted", out, '"2026-07-13T11:21:45.000Z"');
+  assertContains("yaml: contains sessionId", out, "abcdef1234567890");
+  assertContains("yaml: contains prompt block scalar header", out, "prompt: |-");
+  assertContains("yaml: contains prompt text", out, "List all my files");
+  assertContains("yaml: contains response block scalar header", out, "response: |-");
+  assertContains("yaml: contains assistant response", out, "Here are your files: foo bar");
+  assertNotContains("yaml: no markdown frontmatter separator", out, "---\n");
+}
+
+// back-compat: "md" format → produces yaml output
 {
   const out = buildFileContent(baseData, "md", false);
-  assertContains("md: has YAML opening ---", out, "---\n");
-  assertContains("md: contains sessionId", out, "abcdef1234567890");
-  assertContains("md: contains prompt", out, "List all my files");
-  assertContains("md: contains assistant response", out, "Here are your files: foo bar");
+  assertContains("md back-compat: still produces yaml timestamp key", out, "timestamp:");
+  assertNotContains("md back-compat: no markdown frontmatter dashes", out, "---\n");
 }
 
 // txt format
@@ -239,7 +262,7 @@ const baseData = {
     content: "Final response",
     allMessages: ["First message", "Second message", "Final response"],
   };
-  const out = buildFileContent(data, "md", true);
+  const out = buildFileContent(data, "yaml", true);
   assertContains("includeAll=true: first message appears", out, "First message");
   assertContains("includeAll=true: second message appears", out, "Second message");
   assertContains("includeAll=true: final response appears", out, "Final response");
@@ -252,9 +275,9 @@ const baseData = {
     content: "Only this",
     allMessages: ["Earlier message", "Only this"],
   };
-  const out = buildFileContent(data, "md", false);
+  const out = buildFileContent(data, "yaml", false);
   assertContains("includeAll=false: final content present", out, "Only this");
-  assertNotContains("includeAll=false: earlier messages not repeated in All Messages section", out, "All Messages");
+  assertNotContains("includeAll=false: no messages key emitted", out, "messages:");
 }
 
 // ─── resolveOutputDir ─────────────────────────────────────────────────────────

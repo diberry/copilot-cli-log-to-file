@@ -139,8 +139,8 @@ async function flushLog(session, snap, assistantContent, allMsgs) {
     sessionId: snap.sessionId,
   });
 
-  const ext = cfg.fileFormat === "txt" ? ".txt" : ".md";
-  const patternHasExt = rawFilename.endsWith(".md") || rawFilename.endsWith(".txt");
+  const ext = cfg.fileFormat === "txt" ? ".txt" : ".yaml";
+  const patternHasExt = /\.(yaml|yml|txt)$/i.test(rawFilename);
   const withExt = patternHasExt ? rawFilename : rawFilename + ext;
   const safeFilename = sanitizeFilename(withExt);
 

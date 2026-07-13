@@ -8,8 +8,8 @@ For every Copilot CLI prompt/turn, after the assistant finishes responding, the 
 
 ```
 copilot-response-log/
-  2026-07-13T11-21-45Z-list-all-my-files.md
-  2026-07-13T14-05-02Z-explain-this-function.md
+  2026-07-13T11-21-45Z-list-all-my-files.yaml
+  2026-07-13T14-05-02Z-explain-this-function.yaml
 ```
 
 ---
@@ -55,9 +55,9 @@ Config is loaded with this precedence (later overrides earlier):
 | Field | Default | Env var | Description |
 |---|---|---|---|
 | `outputDir` | `"copilot-response-log"` | `COPILOT_LOG_DIR` | Output folder. Relative paths are resolved from the session working directory. Absolute paths used as-is. |
-| `filenamePattern` | `"{timestamp}-{prompt30}.md"` | `COPILOT_LOG_FILENAME_PATTERN` | Filename pattern with tokens (see below). |
+| `filenamePattern` | `"{timestamp}-{prompt30}.yaml"` | `COPILOT_LOG_FILENAME_PATTERN` | Filename pattern with tokens (see below). |
 | `includeAllMessages` | `false` | `COPILOT_LOG_INCLUDE_ALL` (`"true"`/`"false"`) | Include all intermediate assistant messages, not just the final one. |
-| `fileFormat` | `"md"` | `COPILOT_LOG_FORMAT` (`"md"` or `"txt"`) | Output format: Markdown frontmatter + response, or plain text. |
+| `fileFormat` | `"yaml"` | `COPILOT_LOG_FORMAT` (`"yaml"` or `"txt"`) | Output format: complete YAML document (machine-parseable), or plain text. Legacy value `"md"` is silently treated as `"yaml"`. |
 
 ### Filename tokens
 
@@ -74,7 +74,7 @@ Filename safety: path separators and Windows-illegal chars (`< > : " / \ | ? *`)
 
 ```bash
 export COPILOT_LOG_DIR="projects/project-dina/response-log"
-export COPILOT_LOG_FILENAME_PATTERN="{timestamp}-{sessionId}-{prompt30}.md"
+export COPILOT_LOG_FILENAME_PATTERN="{timestamp}-{sessionId}-{prompt30}.yaml"
 ```
 
 Or in `config.json`:
@@ -82,26 +82,44 @@ Or in `config.json`:
 ```json
 {
   "outputDir": "projects/project-dina/response-log",
-  "filenamePattern": "{timestamp}-{sessionId}-{prompt30}.md",
+  "filenamePattern": "{timestamp}-{sessionId}-{prompt30}.yaml",
   "includeAllMessages": false,
-  "fileFormat": "md"
+  "fileFormat": "yaml"
 }
 ```
 
 ---
 
-## File content (Markdown format)
+## File content (YAML format — default)
 
-```markdown
----
-timestamp: 2026-07-13T11:21:45.000Z
-sessionId: abcdef1234567890
-prompt: |
+Each log file is a **complete, valid YAML document** — no frontmatter wrapper, no Markdown body. It can be loaded by any YAML parser directly.
+
+```yaml
+timestamp: "2026-07-13T11:21:45.000Z"
+sessionId: "abcdef1234567890"
+prompt: |-
   List all my files
----
-
-Here are your files: ...
+response: |-
+  Here are your files: ...
 ```
+
+With `includeAllMessages: true`, a `messages` sequence is emitted between `prompt` and `response`:
+
+```yaml
+timestamp: "2026-07-13T11:21:45.000Z"
+sessionId: "abcdef1234567890"
+prompt: |-
+  Explain this function
+messages:
+  - |-
+    First partial answer...
+  - |-
+    Here is the full explanation...
+response: |-
+  Here is the full explanation...
+```
+
+Multi-line values (prompt, response, messages) use `|-` literal block scalars so colons, hashes, quotes, tabs, backslashes, and unicode are all preserved as-is without escaping.
 
 For `fileFormat: "txt"`:
 
@@ -118,18 +136,22 @@ Here are your files: ...
 
 ## Running tests
 
-No test runner or `npm install` needed. Run each file directly with Node.js:
+`npm install` is required for `test/yaml.test.mjs` (installs `js-yaml` as a devDependency). The other test files have no dependencies.
 
 ```bash
-node test/tokens.test.mjs   # sanitizePrompt, formatTimestamp, substituteTokens, sanitizeFilename, resolveCollision
-node test/config.test.mjs   # loadConfig, buildFileContent, resolveOutputDir
+npm install
+node test/yaml.test.mjs     # YAML round-trip validity (35 assertions, adversarial inputs)
+node test/config.test.mjs   # loadConfig, buildFileContent, resolveOutputDir (44 assertions)
+node test/tokens.test.mjs   # sanitizePrompt, formatTimestamp, substituteTokens, sanitizeFilename, resolveCollision (22 assertions)
 ```
 
 ---
 
 ## SDK note
 
-`@github/copilot-sdk` is **not** an npm dependency. It is provided by the Copilot CLI at runtime and only resolves when run inside the CLI. Do not run `npm install` — there are no dependencies.
+`@github/copilot-sdk` is **not** an npm dependency. It is provided by the Copilot CLI at runtime and only resolves when run inside the CLI.
+
+`js-yaml` is a **dev-only** dependency used exclusively by the test suite. It is not required at runtime — the extension itself contains a hand-rolled YAML emitter.
 
 ## console.log() is forbidden
 
@@ -143,10 +165,11 @@ stdout is reserved for the CLI's JSON-RPC protocol. **Never use `console.log()`*
 .github/extensions/copilot-cli-log-to-file/
   extension.mjs         # Entry point — joinSession + hooks + event handlers
   lib/
-    format.mjs          # Pure helpers (config, token substitution, sanitizers)
+    format.mjs          # Pure helpers (config, token substitution, sanitizers, YAML emitter)
   config.example.json   # Documented config template
 
 test/
+  yaml.test.mjs         # YAML round-trip tests (js-yaml parser, adversarial inputs)
   tokens.test.mjs       # Tests for sanitizePrompt, formatTimestamp, substituteTokens, sanitizeFilename, resolveCollision
   config.test.mjs       # Tests for loadConfig, buildFileContent, resolveOutputDir
 

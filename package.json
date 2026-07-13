@@ -9,5 +9,8 @@
     "type": "git",
     "url": "https://github.com/diberry/copilot-cli-log-to-file.git"
   },
-  "note": "@github/copilot-sdk is provided by the Copilot CLI at runtime; it is NOT an npm dependency and must not be installed."
+  "note": "@github/copilot-sdk is provided by the Copilot CLI at runtime; it is NOT an npm dependency and must not be installed.",
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
+  }
 }

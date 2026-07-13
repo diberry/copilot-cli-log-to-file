@@ -10,12 +10,24 @@ import { resolve, isAbsolute } from "path";
 
 const DEFAULTS = {
   outputDir: "copilot-response-log",
-  filenamePattern: "{timestamp}-{prompt30}.md",
+  filenamePattern: "{timestamp}-{prompt30}.yaml",
   includeAllMessages: false,
-  fileFormat: "md",
+  fileFormat: "yaml",
 };
 
 // ─── Config loading ───────────────────────────────────────────────────────────
+
+/**
+ * Normalize a fileFormat value.
+ * "yaml" → "yaml", "md" → "yaml" (back-compat), "txt" → "txt", anything else → null.
+ * @param {string} val
+ * @returns {"yaml"|"txt"|null}
+ */
+function normalizeFormat(val) {
+  if (val === "txt") return "txt";
+  if (val === "yaml" || val === "md") return "yaml";
+  return null;
+}
 
 /**
  * Load config with precedence: defaults < config.json < env vars.
@@ -34,8 +46,9 @@ export function loadConfig(extensionDir, logWarn = () => {}) {
     if (parsed.outputDir !== undefined) cfg.outputDir = String(parsed.outputDir);
     if (parsed.filenamePattern !== undefined) cfg.filenamePattern = String(parsed.filenamePattern);
     if (parsed.includeAllMessages !== undefined) cfg.includeAllMessages = Boolean(parsed.includeAllMessages);
-    if (parsed.fileFormat !== undefined && ["md", "txt"].includes(parsed.fileFormat)) {
-      cfg.fileFormat = parsed.fileFormat;
+    if (parsed.fileFormat !== undefined) {
+      const norm = normalizeFormat(parsed.fileFormat);
+      if (norm !== null) cfg.fileFormat = norm;
     }
   } catch (err) {
     if (err.code !== "ENOENT") {
@@ -49,8 +62,9 @@ export function loadConfig(extensionDir, logWarn = () => {}) {
   if (process.env.COPILOT_LOG_INCLUDE_ALL !== undefined) {
     cfg.includeAllMessages = process.env.COPILOT_LOG_INCLUDE_ALL === "true";
   }
-  if (process.env.COPILOT_LOG_FORMAT && ["md", "txt"].includes(process.env.COPILOT_LOG_FORMAT)) {
-    cfg.fileFormat = process.env.COPILOT_LOG_FORMAT;
+  if (process.env.COPILOT_LOG_FORMAT) {
+    const norm = normalizeFormat(process.env.COPILOT_LOG_FORMAT);
+    if (norm !== null) cfg.fileFormat = norm;
   }
 
   return cfg;
@@ -168,10 +182,72 @@ export function resolveCollision(dir, baseFilename, exists) {
 
 // ─── File content builders ────────────────────────────────────────────────────
 
+// ── YAML emitter helpers (no runtime dependency — hand-rolled for our schema) ──
+
+/** Normalize all line endings to \n. */
+function normalizeEol(str) {
+  return str.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+/** Emit a double-quoted YAML scalar (safe for known-safe values like timestamps, sessionIds). */
+function emitDoubleQuoted(value) {
+  return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+}
+
+/**
+ * Emit a YAML literal block scalar value (the part that follows "key: ").
+ * Uses |- (strip chomp) — the YAML parser strips all trailing newlines.
+ * If value is empty, returns `""` (double-quoted empty string instead of
+ * an ambiguous empty block scalar).
+ *
+ * @param {string} value    Raw value; may contain colons, hashes, quotes, tabs, unicode.
+ * @param {string} indent   Spaces to prepend to each content line, e.g. "  " or "    ".
+ * @returns {string}        e.g. `|-\n  line1\n  line2`
+ */
+function emitBlockScalarValue(value, indent) {
+  if (value === "") return '""';
+  const lines = normalizeEol(value).split("\n");
+  return "|-\n" + lines.map((l) => indent + l).join("\n");
+}
+
+/**
+ * Build a complete, valid YAML mapping document.
+ * Keys in order: timestamp, sessionId, prompt, [messages], response.
+ * Scalar strings use double-quoted style; multi-line values use literal block scalars (|-).
+ *
+ * @param {{ timestamp: Date, sessionId: string, prompt: string, content: string, allMessages: string[] }} data
+ * @param {boolean} includeAllMessages
+ * @returns {string}
+ */
+function buildYamlContent(data, includeAllMessages) {
+  const { timestamp, sessionId, prompt, content, allMessages } = data;
+  const isoTs = timestamp.toISOString();
+
+  let out = "";
+  out += `timestamp: ${emitDoubleQuoted(isoTs)}\n`;
+  out += `sessionId: ${emitDoubleQuoted(sessionId)}\n`;
+  out += `prompt: ${emitBlockScalarValue(prompt, "  ")}\n`;
+
+  if (includeAllMessages && allMessages.length > 0) {
+    out += "messages:\n";
+    for (const msg of allMessages) {
+      if (msg === "") {
+        out += '  - ""\n';
+      } else {
+        const lines = normalizeEol(msg).split("\n");
+        out += "  - |-\n" + lines.map((l) => "    " + l).join("\n") + "\n";
+      }
+    }
+  }
+
+  out += `response: ${emitBlockScalarValue(content, "  ")}\n`;
+  return out;
+}
+
 /**
  * Build the full file content string.
  * @param {{ timestamp: Date, sessionId: string, prompt: string, content: string, allMessages: string[] }} data
- * @param {"md"|"txt"} fileFormat
+ * @param {"yaml"|"txt"|string} fileFormat  "txt" for plain text; everything else (incl. legacy "md") → yaml.
  * @param {boolean} includeAllMessages
  * @returns {string}
  */
@@ -179,21 +255,7 @@ export function buildFileContent(data, fileFormat, includeAllMessages) {
   const { timestamp, sessionId, prompt, content, allMessages } = data;
   const isoTs = timestamp.toISOString();
 
-  if (fileFormat === "md") {
-    const indentedPrompt = prompt
-      .split("\n")
-      .map((l) => `  ${l}`)
-      .join("\n");
-    let body = `---\ntimestamp: ${isoTs}\nsessionId: ${sessionId}\nprompt: |\n${indentedPrompt}\n---\n\n${content}`;
-    if (includeAllMessages && allMessages.length > 0) {
-      body += `\n\n---\n\n## All Messages\n\n`;
-      allMessages.forEach((m, i) => {
-        body += `### Message ${i + 1}\n\n${m}\n\n`;
-      });
-    }
-    return body;
-  } else {
-    // txt
+  if (fileFormat === "txt") {
     let body =
       `timestamp: ${isoTs}\n` +
       `sessionId: ${sessionId}\n` +
@@ -208,4 +270,7 @@ export function buildFileContent(data, fileFormat, includeAllMessages) {
     }
     return body;
   }
+
+  // yaml (default) — also handles legacy "md" and any unknown value
+  return buildYamlContent(data, includeAllMessages);
 }
