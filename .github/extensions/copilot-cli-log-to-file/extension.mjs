@@ -32,7 +32,7 @@ import {
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 
-/** @type {{ prompt: string, ts: Date } | null} */
+/** @type {{ prompt: string, ts: Date, sessionId: string, workingDirectory: string } | null} */
 let pending = null;
 /** @type {string | null} */
 let lastAssistant = null;
@@ -44,8 +44,8 @@ let allMessages = [];
 const session = await joinSession({
   tools: [],
   hooks: {
-    onUserPromptSubmitted(input) {
-      pending = { prompt: input.prompt ?? "", ts: input.timestamp ?? new Date() };
+    onUserPromptSubmitted(input, invocation) {
+      pending = { prompt: input.prompt ?? "", ts: input.timestamp ?? new Date(), sessionId: invocation?.sessionId ?? "unknown", workingDirectory: input.workingDirectory ?? process.cwd() };
       lastAssistant = null;
       allMessages = [];
     },
@@ -113,7 +113,7 @@ async function flushLog(session, snap, assistantContent, allMsgs) {
   const rawFilename = substituteTokens(cfg.filenamePattern, {
     timestamp: snap.ts,
     prompt: snap.prompt,
-    sessionId: session.invocation?.sessionId ?? "unknown",
+    sessionId: snap.sessionId,
   });
 
   const ext = cfg.fileFormat === "txt" ? ".txt" : ".md";
@@ -132,7 +132,7 @@ async function flushLog(session, snap, assistantContent, allMsgs) {
   const content = buildFileContent(
     {
       timestamp: snap.ts,
-      sessionId: session.invocation?.sessionId ?? "unknown",
+      sessionId: snap.sessionId,
       prompt: snap.prompt,
       content: assistantContent,
       allMessages: allMsgs,
