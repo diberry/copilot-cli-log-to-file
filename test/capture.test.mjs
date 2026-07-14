@@ -235,6 +235,103 @@ const baseData = {
   assertNotContains("attachments on: no tools", out, "tools:");
 }
 
+// Attachment variant: directory
+{
+  const dirData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "directory", label: "test-dir", path: "/test/dir", displayName: "test-dir" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(dirData, "yaml", false, cfg);
+  assertContains("attachment variant directory: type emitted", out, "type:");
+  assertContains("attachment variant directory: directory value", out, "directory");
+  assertContains("attachment variant directory: path present", out, "/test/dir");
+  assertContains("attachment variant directory: displayName present", out, "test-dir");
+}
+
+// Attachment variant: selection
+{
+  const selectionData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "selection", label: "src.js:10-20", filePath: "/test/src.js", displayName: "src.js:10-20" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(selectionData, "yaml", false, cfg);
+  assertContains("attachment variant selection: type emitted", out, "type:");
+  assertContains("attachment variant selection: selection value", out, "selection");
+  assertContains("attachment variant selection: displayName present", out, "src.js:10-20");
+}
+
+// Attachment variant: github_reference
+{
+  const ghRefData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "github_reference", label: "Fix bug", title: "Fix bug", number: 123, url: "https://github.com/org/repo/issues/123", state: "open" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(ghRefData, "yaml", false, cfg);
+  assertContains("attachment variant github_reference: type emitted", out, "type:");
+  assertContains("attachment variant github_reference: github_reference value", out, "github_reference");
+  // Note: format.mjs only outputs type, path, and displayName, so title/number/url/state are captured but not emitted
+}
+
+// Attachment variant: blob (with displayName)
+{
+  const blobData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "blob", label: "image.png", displayName: "image.png", mimeType: "image/png" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(blobData, "yaml", false, cfg);
+  assertContains("attachment variant blob with displayName: type emitted", out, "type:");
+  assertContains("attachment variant blob with displayName: blob value", out, "blob");
+  assertContains("attachment variant blob with displayName: displayName present", out, "image.png");
+}
+
+// Attachment variant: blob (without displayName, fallback to unknown)
+{
+  const blobNoNameData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "blob", label: "(unknown)", mimeType: "application/octet-stream" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(blobNoNameData, "yaml", false, cfg);
+  assertContains("attachment variant blob without displayName: type emitted", out, "type:");
+  assertContains("attachment variant blob without displayName: blob value", out, "blob");
+  // Note: No displayName field should be present in output since it's undefined
+}
+
+// Attachment variant: extension_context
+{
+  const extContextData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "extension_context", label: "Extension Data", title: "Extension Data", extensionId: "test.extension" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(extContextData, "yaml", false, cfg);
+  assertContains("attachment variant extension_context: type emitted", out, "type:");
+  assertContains("attachment variant extension_context: extension_context value", out, "extension_context");
+  // Note: format.mjs only outputs type, path, and displayName, so title/extensionId are captured but not emitted
+}
+
 // With reasoning enabled
 {
   const cfg = { capture: { attachments: false, reasoning: true, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
