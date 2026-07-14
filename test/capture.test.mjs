@@ -264,6 +264,28 @@ const baseData = {
   assertContains("usage on: inputTokens present", out, "inputTokens:");
 }
 
+// Empty-string payloads are preserved (fix #5)
+{
+  const emptyData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      tools: [
+        {
+          toolCallId: "call_empty",
+          toolName: "test",
+          arguments: "",  // Empty string should still be emitted
+          result: "",     // Empty string should still be emitted
+        },
+      ],
+    },
+  };
+  const cfg = { capture: { attachments: false, reasoning: false, toolCalls: true, toolResults: true, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(emptyData, "yaml", false, cfg);
+  assertContains("empty strings: arguments field present", out, "arguments:");
+  assertContains("empty strings: result field present", out, "result:");
+}
+
 // ─── YAML round-trip with captured data ───────────────────────────────────────
 console.error("\nYAML round-trip with captured data:");
 

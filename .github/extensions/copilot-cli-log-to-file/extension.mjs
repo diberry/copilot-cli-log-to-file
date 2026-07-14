@@ -13,8 +13,7 @@
  */
 
 import { joinSession } from "@github/copilot-sdk/extension";
-import { mkdir, writeFile, access } from "fs/promises";
-import { constants } from "fs";
+import { mkdir, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -32,6 +31,13 @@ import {
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 
+// ─── Per-turn and per-session buffers ────────────────────────────────────────
+// pending: holds current turn metadata (prompt, sessionId, timestamp) from hook → idle.
+// lastAssistant: last assistant.message content before idle (overwrites on multiple messages).
+// allMessages: all assistant.message content in chronological order (when includeAllMessages=true).
+// capturedData: per-turn event buffers (tools, usage, reasoning, etc.) reset each prompt, flushed on idle.
+// capturedData.tools: merged start+complete events by toolCallId — toolCalls+toolResults toggles feed ONE "tools:" YAML block.
+
 /** @type {{ prompt: string, ts: Date, sessionId: string, workingDirectory: string, id: number, agentMode?: string, attachments?: any[] } | null} */
 let pending = null;
 /** @type {string | null} */
@@ -39,7 +45,6 @@ let lastAssistant = null;
 /** @type {string[]} */
 let allMessages = [];
 
-// Captured event data buffers — reset on every onUserPromptSubmitted, snapshot + flush on idle
 /** @type {{ attachments: any[], reasoning: any[], tools: any[], usage: any[], model: any[], skills: any[], subagents: any[], permissions: any[], errors: any[], lifecycle: any[], turns: any[], schedules: any[], notifications: any[] }} */
 let capturedData = resetCapturedData();
 
@@ -152,11 +157,12 @@ session.on("tool.execution_start", (event) => {
   });
 });
 
-// Tool execution complete — correlate with start by toolCallId
+// Tool execution complete — correlate with start by toolCallId (first unresolved match)
 session.on("tool.execution_complete", (event) => {
   const data = event?.data;
   if (!data?.toolCallId) return;
-  const existing = capturedData.tools.find((t) => t.toolCallId === data.toolCallId);
+  // Find the first UNRESOLVED start with this toolCallId (no success field yet)
+  const existing = capturedData.tools.find((t) => t.toolCallId === data.toolCallId && t.success === undefined);
   if (existing) {
     existing.success = data.success;
     existing.result = typeof data.result === "string" ? data.result : JSON.stringify(data.result);
@@ -267,7 +273,9 @@ session.on("permission.requested", (event) => {
   capturedData.permissions.push({
     requestId: data.requestId,
     type: "requested",
-    prompt: data.prompt?.displayText,
+    // PermissionRequestedData has permissionRequest/promptRequest, not prompt.displayText
+    permissionKind: data.permissionRequest?.kind,
+    promptDisplayText: data.promptRequest?.displayText,
   });
 });
 
@@ -326,21 +334,26 @@ session.on("abort", (event) => {
 session.on("session.start", (event) => {
   const data = event?.data;
   if (!data) return;
+  // StartData has contextTier, copilotVersion, reasoningEffort, but NOT sessionId or selectedModel.
+  // sessionId is already in pending from the hook; model comes from assistant.usage or model.change.
   capturedData.lifecycle.push({
     event: "start",
-    sessionId: data.sessionId,
     contextTier: data.contextTier,
-    selectedModel: data.selectedModel,
+    copilotVersion: data.copilotVersion,
+    reasoningEffort: data.reasoningEffort,
   });
 });
 
 session.on("session.resume", (event) => {
   const data = event?.data;
   if (!data) return;
+  // ResumeData has contextTier, eventCount, resumeTime, reasoningEffort, but NOT sessionId or selectedModel.
   capturedData.lifecycle.push({
     event: "resume",
     eventCount: data.eventCount,
-    selectedModel: data.selectedModel,
+    contextTier: data.contextTier,
+    resumeTime: data.resumeTime,
+    reasoningEffort: data.reasoningEffort,
   });
 });
 
@@ -398,6 +411,8 @@ session.on("session.usage_info", (event) => {
 });
 
 session.on("session.todos_changed", (event) => {
+  const data = event?.data;
+  // Apply consistent guard pattern even though TodosChangedData has no fields
   capturedData.lifecycle.push({
     event: "todos_changed",
   });
@@ -470,19 +485,23 @@ session.on("session.autopilot_objective_changed", (event) => {
 session.on("system.notification", (event) => {
   const data = event?.data;
   if (!data) return;
+  // SystemNotificationData has content (string) and kind (SystemNotification union), not notification
   capturedData.notifications.push({
     type: "system",
-    notification: data.notification,
+    content: data.content,
+    kind: data.kind?.type,  // kind is a discriminated union with a 'type' field
   });
 });
 
 session.on("custom.notification", (event) => {
   const data = event?.data;
   if (!data) return;
+  // CustomNotificationData has name, payload, source, version, not title/message
   capturedData.notifications.push({
     type: "custom",
-    title: data.title,
-    message: data.message,
+    name: data.name,
+    source: data.source,
+    payload: data.payload,
   });
 });
 

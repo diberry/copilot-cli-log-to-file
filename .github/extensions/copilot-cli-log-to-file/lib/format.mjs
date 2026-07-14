@@ -363,16 +363,6 @@ function emitYamlPrimitive(val) {
   return emitDoubleQuotedFull(String(val));
 }
 
-/** Emit a YAML array of primitives, one per line. */
-function emitYamlArray(arr, indent) {
-  if (!Array.isArray(arr) || arr.length === 0) return "[]";
-  let out = "";
-  for (const item of arr) {
-    out += `${indent}- ${emitYamlPrimitive(item)}\n`;
-  }
-  return out;
-}
-
 /** Emit a YAML mapping of primitives. */
 function emitYamlMapping(obj, indent) {
   if (!obj || typeof obj !== "object" || Object.keys(obj).length === 0) return "{}";
@@ -386,11 +376,12 @@ function emitYamlMapping(obj, indent) {
 /**
  * Append captured data as YAML sections, only when enabled AND non-empty.
  * Stable order: attachments, reasoning, toolCalls, usage, model, skills, subagents, permissions, errors, lifecycle, turns, schedules, notifications.
+ * Data-driven approach: each section defined by {key, toggle, captureKey, emitter}.
  */
 function appendCapturedDataYaml(captured, toggles) {
   let out = "";
 
-  // 1. Attachments
+  // Special handling for attachments (custom structure)
   if (toggles.attachments && captured.attachments?.length > 0) {
     out += "attachments:\n";
     for (const att of captured.attachments) {
@@ -400,7 +391,7 @@ function appendCapturedDataYaml(captured, toggles) {
     }
   }
 
-  // 2. Reasoning
+  // Special handling for reasoning (block scalar content)
   if (toggles.reasoning && captured.reasoning?.length > 0) {
     out += "reasoning:\n";
     for (const r of captured.reasoning) {
@@ -408,96 +399,41 @@ function appendCapturedDataYaml(captured, toggles) {
     }
   }
 
-  // 3. Tool calls (merged start + complete)
+  // Special handling for tools (merged start + complete, both toggles feed one block)
+  // NOTE: toolCalls+toolResults both feed the single "tools:" YAML section.
   if ((toggles.toolCalls || toggles.toolResults) && captured.tools?.length > 0) {
     out += "tools:\n";
     for (const t of captured.tools) {
       out += `  - toolCallId: ${emitYamlPrimitive(t.toolCallId)}\n`;
       if (t.toolName) out += `    toolName: ${emitYamlPrimitive(t.toolName)}\n`;
-      if (t.arguments) out += `    arguments: ${emitBlockScalarValue(t.arguments, "      ")}\n`;
+      // Emit arguments/result when defined (not just truthy) to preserve empty strings
+      if (t.arguments !== undefined) out += `    arguments: ${emitBlockScalarValue(t.arguments, "      ")}\n`;
       if (t.success !== undefined) out += `    success: ${t.success}\n`;
-      if (t.result) out += `    result: ${emitBlockScalarValue(t.result, "      ")}\n`;
+      if (t.result !== undefined) out += `    result: ${emitBlockScalarValue(t.result, "      ")}\n`;
       if (t.error) out += `    error: ${emitYamlPrimitive(t.error)}\n`;
     }
   }
 
-  // 4. Usage
-  if (toggles.usage && captured.usage?.length > 0) {
-    out += "usage:\n";
-    for (const u of captured.usage) {
-      out += "  - " + emitYamlMapping(u, "    ");
-    }
-  }
+  // Standard sections: emit array of mappings using emitYamlMapping
+  const standardSections = [
+    { key: "usage", toggle: "usage", captureKey: "usage" },
+    { key: "model", toggle: "model", captureKey: "model" },
+    { key: "skills", toggle: "skills", captureKey: "skills" },
+    { key: "subagents", toggle: "subagents", captureKey: "subagents" },
+    { key: "permissions", toggle: "permissions", captureKey: "permissions" },
+    { key: "errors", toggle: "errors", captureKey: "errors" },
+    { key: "lifecycle", toggle: "lifecycle", captureKey: "lifecycle" },
+    { key: "turns", toggle: "turns", captureKey: "turns" },
+    { key: "schedules", toggle: "schedules", captureKey: "schedules" },
+    { key: "notifications", toggle: "notifications", captureKey: "notifications" },
+  ];
 
-  // 5. Model
-  if (toggles.model && captured.model?.length > 0) {
-    out += "model:\n";
-    for (const m of captured.model) {
-      out += "  - " + emitYamlMapping(m, "    ");
-    }
-  }
-
-  // 6. Skills
-  if (toggles.skills && captured.skills?.length > 0) {
-    out += "skills:\n";
-    for (const s of captured.skills) {
-      out += "  - " + emitYamlMapping(s, "    ");
-    }
-  }
-
-  // 7. Subagents
-  if (toggles.subagents && captured.subagents?.length > 0) {
-    out += "subagents:\n";
-    for (const sa of captured.subagents) {
-      out += "  - " + emitYamlMapping(sa, "    ");
-    }
-  }
-
-  // 8. Permissions
-  if (toggles.permissions && captured.permissions?.length > 0) {
-    out += "permissions:\n";
-    for (const p of captured.permissions) {
-      out += "  - " + emitYamlMapping(p, "    ");
-    }
-  }
-
-  // 9. Errors
-  if (toggles.errors && captured.errors?.length > 0) {
-    out += "errors:\n";
-    for (const e of captured.errors) {
-      out += "  - " + emitYamlMapping(e, "    ");
-    }
-  }
-
-  // 10. Lifecycle
-  if (toggles.lifecycle && captured.lifecycle?.length > 0) {
-    out += "lifecycle:\n";
-    for (const lc of captured.lifecycle) {
-      out += "  - " + emitYamlMapping(lc, "    ");
-    }
-  }
-
-  // 11. Turns
-  if (toggles.turns && captured.turns?.length > 0) {
-    out += "turns:\n";
-    for (const tn of captured.turns) {
-      out += "  - " + emitYamlMapping(tn, "    ");
-    }
-  }
-
-  // 12. Schedules
-  if (toggles.schedules && captured.schedules?.length > 0) {
-    out += "schedules:\n";
-    for (const sc of captured.schedules) {
-      out += "  - " + emitYamlMapping(sc, "    ");
-    }
-  }
-
-  // 13. Notifications
-  if (toggles.notifications && captured.notifications?.length > 0) {
-    out += "notifications:\n";
-    for (const n of captured.notifications) {
-      out += "  - " + emitYamlMapping(n, "    ");
+  for (const { key, toggle, captureKey } of standardSections) {
+    if (toggles[toggle] && captured[captureKey]?.length > 0) {
+      out += `${key}:\n`;
+      for (const item of captured[captureKey]) {
+        out += "  - " + emitYamlMapping(item, "    ");
+      }
     }
   }
 
