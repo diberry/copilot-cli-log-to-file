@@ -3,5 +3,22 @@
   "outputDir": "copilot-response-log",
   "filenamePattern": "{timestamp}-{prompt30}.yaml",
   "includeAllMessages": false,
-  "fileFormat": "yaml"
+  "fileFormat": "yaml",
+  "capture": {
+    "_comment": "All captures default to false — opt-in to what you need. Corresponds to COPILOT_LOG_CAPTURE_* env vars.",
+    "attachments": false,
+    "reasoning": false,
+    "toolCalls": false,
+    "toolResults": false,
+    "usage": false,
+    "model": false,
+    "skills": false,
+    "subagents": false,
+    "permissions": false,
+    "errors": false,
+    "lifecycle": false,
+    "turns": false,
+    "schedules": false,
+    "notifications": false
+  }
 }
