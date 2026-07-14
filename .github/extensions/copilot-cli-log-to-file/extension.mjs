@@ -126,11 +126,23 @@ session.on("user.message", (event) => {
   const data = event?.data;
   if (data?.agentMode) pending.agentMode = data.agentMode;
   if (data?.attachments && data.attachments.length > 0) {
-    pending.attachments = data.attachments.map((att) => ({
-      type: att.type,
-      path: att.path,
-      displayName: att.displayName,
-    }));
+    pending.attachments = data.attachments.map((a) => {
+      const label = a.displayName ?? a.path ?? a.filePath ?? a.title ?? '(unknown)';
+      return {
+        type: a.type,
+        label,
+        // Include type-specific fields that exist
+        ...(a.path !== undefined && { path: a.path }),
+        ...(a.filePath !== undefined && { filePath: a.filePath }),
+        ...(a.displayName !== undefined && { displayName: a.displayName }),
+        ...(a.title !== undefined && { title: a.title }),
+        ...(a.number !== undefined && { number: a.number }),
+        ...(a.url !== undefined && { url: a.url }),
+        ...(a.state !== undefined && { state: a.state }),
+        ...(a.mimeType !== undefined && { mimeType: a.mimeType }),
+        ...(a.extensionId !== undefined && { extensionId: a.extensionId }),
+      };
+    });
     capturedData.attachments.push(...pending.attachments);
   }
 });
@@ -151,8 +163,8 @@ session.on("tool.execution_start", (event) => {
     toolCallId: data.toolCallId,
     toolName: data.toolName,
     arguments: typeof data.arguments === "string" ? data.arguments : JSON.stringify(data.arguments),
-    mcpServerName: data.mcpServer?.name,
-    mcpToolName: data.mcpServer?.toolName,
+    mcpServerName: data.mcpServerName,
+    mcpToolName: data.mcpToolName,
     model: data.model,
   });
 });
@@ -293,12 +305,12 @@ session.on("permission.completed", (event) => {
   const existing = capturedData.permissions.find((p) => p.requestId === data.requestId && p.type === "requested");
   if (existing) {
     existing.type = "completed";
-    existing.result = data.result?.type;
+    existing.result = data.result?.kind;
   } else {
     capturedData.permissions.push({
       requestId: data.requestId,
       type: "completed",
-      result: data.result?.type,
+      result: data.result?.kind,
     });
   }
 });
@@ -402,7 +414,7 @@ session.on("session.context_changed", (event) => {
     event: "context_changed",
     cwd: data.cwd,
     branch: data.branch,
-    repository: data.repository,
+    gitRoot: data.gitRoot,
   });
 });
 
