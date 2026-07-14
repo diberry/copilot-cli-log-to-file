@@ -465,9 +465,9 @@ function appendCapturedDataTxt(captured, toggles) {
     out += `\n\n${sep}\nTools\n${sep}\n`;
     captured.tools.forEach((t, i) => {
       out += `\n[Tool ${i + 1}] ${t.toolName} (${t.toolCallId})\n`;
-      if (t.arguments) out += `Arguments: ${t.arguments}\n`;
+      if (t.arguments !== undefined) out += `Arguments: ${t.arguments}\n`;
       if (t.success !== undefined) out += `Success: ${t.success}\n`;
-      if (t.result) out += `Result: ${t.result}\n`;
+      if (t.result !== undefined) out += `Result: ${t.result}\n`;
       if (t.error) out += `Error: ${t.error}\n`;
     });
   }

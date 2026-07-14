@@ -286,6 +286,69 @@ const baseData = {
   assertContains("empty strings: result field present", out, "result:");
 }
 
+// Duplicate toolCallId correlation regression test: simulates real merge logic
+{
+  // Simulate the actual extension's merge logic:
+  // 1. tool.execution_start creates entries with toolCallId/toolName/arguments
+  // 2. tool.execution_complete finds first UNRESOLVED (success===undefined) and adds success/result/error
+  const tools = [];
+  
+  // First start with toolCallId "dup"
+  tools.push({ toolCallId: "dup", toolName: "grep", arguments: "first" });
+  // Second start with the SAME toolCallId "dup"
+  tools.push({ toolCallId: "dup", toolName: "view", arguments: "second" });
+  
+  // First complete for "dup" should pair with first unresolved start (grep)
+  const first = tools.find(t => t.toolCallId === "dup" && t.success === undefined);
+  if (first) {
+    first.success = true;
+    first.result = "result1";
+  }
+  
+  // Second complete for "dup" should pair with second unresolved start (view)
+  const second = tools.find(t => t.toolCallId === "dup" && t.success === undefined);
+  if (second) {
+    second.success = false;
+    second.error = "error2";
+  }
+  
+  // Complete with no matching start (orphaned)
+  tools.push({ toolCallId: "orphan", success: true, result: "orphaned" });
+  
+  const duplicateData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      tools,
+    },
+  };
+  
+  const cfg = { capture: { attachments: false, reasoning: false, toolCalls: true, toolResults: true, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(duplicateData, "yaml", false, cfg);
+  
+  try {
+    const parsed = jsyaml.load(out);
+    assert("duplicate toolCallId: tools count", parsed.tools.length, 3);
+    
+    // First pair: toolCallId "dup", toolName "grep", with result1
+    assert("duplicate toolCallId: first pair toolName", parsed.tools[0].toolName, "grep");
+    assert("duplicate toolCallId: first pair result", parsed.tools[0].result, "result1");
+    assert("duplicate toolCallId: first pair success", parsed.tools[0].success, true);
+    
+    // Second pair: toolCallId "dup", toolName "view", with error2
+    assert("duplicate toolCallId: second pair toolName", parsed.tools[1].toolName, "view");
+    assert("duplicate toolCallId: second pair error", parsed.tools[1].error, "error2");
+    assert("duplicate toolCallId: second pair success", parsed.tools[1].success, false);
+    
+    // Orphaned complete: should still be recorded
+    assert("duplicate toolCallId: orphan toolCallId", parsed.tools[2].toolCallId, "orphan");
+    assert("duplicate toolCallId: orphan result", parsed.tools[2].result, "orphaned");
+  } catch (err) {
+    console.error(`  ✗ duplicate toolCallId: parse failed: ${err.message}`);
+    failed++;
+  }
+}
+
 // ─── YAML round-trip with captured data ───────────────────────────────────────
 console.error("\nYAML round-trip with captured data:");
 

@@ -191,7 +191,9 @@ response: |-
 
 ### Enriched output (with captures enabled)
 
-When you enable capture toggles, additional top-level YAML sections appear **only when there is data for that category**:
+When you enable capture toggles, additional top-level YAML sections appear **only when there is data for that category**.
+
+**NOTE:** The `toolCalls` and `toolResults` toggles **both feed a single merged `tools:` YAML block**. Tool results appear inside each tool entry (not as a separate section).
 
 ```yaml
 timestamp: "2026-07-14T10:00:00.000Z"

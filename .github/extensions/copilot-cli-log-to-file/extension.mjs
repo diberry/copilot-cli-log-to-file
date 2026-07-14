@@ -226,8 +226,9 @@ session.on("subagent.started", (event) => {
   const data = event?.data;
   if (!data) return;
   capturedData.subagents.push({
-    agentId: data.agentId,
+    toolCallId: data.toolCallId,
     agentName: data.agentName,
+    agentDisplayName: data.agentDisplayName,
     status: "started",
   });
 });
@@ -236,15 +237,17 @@ session.on("subagent.started", (event) => {
 session.on("subagent.completed", (event) => {
   const data = event?.data;
   if (!data) return;
-  const existing = capturedData.subagents.find((sa) => sa.agentId === data.agentId && sa.status === "started");
+  const existing = capturedData.subagents.find((sa) => sa.toolCallId === data.toolCallId && sa.status === "started");
   if (existing) {
     existing.status = "completed";
-    existing.summary = data.summary;
+    existing.durationMs = data.durationMs;
   } else {
     capturedData.subagents.push({
-      agentId: data.agentId,
+      toolCallId: data.toolCallId,
+      agentName: data.agentName,
+      agentDisplayName: data.agentDisplayName,
       status: "completed",
-      summary: data.summary,
+      durationMs: data.durationMs,
     });
   }
 });
@@ -253,15 +256,19 @@ session.on("subagent.completed", (event) => {
 session.on("subagent.failed", (event) => {
   const data = event?.data;
   if (!data) return;
-  const existing = capturedData.subagents.find((sa) => sa.agentId === data.agentId && sa.status === "started");
+  const existing = capturedData.subagents.find((sa) => sa.toolCallId === data.toolCallId && sa.status === "started");
   if (existing) {
     existing.status = "failed";
     existing.error = data.error;
+    existing.durationMs = data.durationMs;
   } else {
     capturedData.subagents.push({
-      agentId: data.agentId,
+      toolCallId: data.toolCallId,
+      agentName: data.agentName,
+      agentDisplayName: data.agentDisplayName,
       status: "failed",
       error: data.error,
+      durationMs: data.durationMs,
     });
   }
 });
@@ -273,9 +280,9 @@ session.on("permission.requested", (event) => {
   capturedData.permissions.push({
     requestId: data.requestId,
     type: "requested",
-    // PermissionRequestedData has permissionRequest/promptRequest, not prompt.displayText
     permissionKind: data.permissionRequest?.kind,
-    promptDisplayText: data.promptRequest?.displayText,
+    promptKind: data.promptRequest?.kind,
+    promptIntention: data.promptRequest?.intention,
   });
 });
 
@@ -314,7 +321,7 @@ session.on("model.call_failure", (event) => {
   if (!data) return;
   capturedData.errors.push({
     errorType: "model_call_failure",
-    message: data.message,
+    message: data.errorMessage,
     statusCode: data.statusCode,
     source: data.source,
   });
@@ -384,7 +391,7 @@ session.on("session.truncation", (event) => {
   if (!data) return;
   capturedData.lifecycle.push({
     event: "truncation",
-    messagesRemoved: data.messagesRemoved,
+    messagesRemoved: data.messagesRemovedDuringTruncation,
   });
 });
 
@@ -412,7 +419,7 @@ session.on("session.usage_info", (event) => {
 
 session.on("session.todos_changed", (event) => {
   const data = event?.data;
-  // Apply consistent guard pattern even though TodosChangedData has no fields
+  if (!data) return;
   capturedData.lifecycle.push({
     event: "todos_changed",
   });
