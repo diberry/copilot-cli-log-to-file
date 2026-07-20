@@ -140,10 +140,26 @@ Here are your files: ...
 
 ```bash
 npm install
+npm test
+
+# Or run individual tests:
 node test/yaml.test.mjs     # YAML round-trip validity (35 assertions, adversarial inputs)
 node test/config.test.mjs   # loadConfig, buildFileContent, resolveOutputDir (44 assertions)
 node test/tokens.test.mjs   # sanitizePrompt, formatTimestamp, substituteTokens, sanitizeFilename, resolveCollision (22 assertions)
+node test/extract.test.mjs  # candidate extraction and review YAML validity
 ```
+
+---
+
+## Candidate extraction
+
+The capture layer is the observation stage for portable personal context. Candidate extraction reads a time window of capture YAML files and emits a human-reviewable YAML artifact. It does **not** approve, publish, or mutate context.
+
+```bash
+npm run extract:candidates -- --input copilot-response-log --days 7 --output candidate-review.yaml
+```
+
+Every emitted candidate starts with `status: pending`. See `docs/pipeline-design.md` for the observation → candidate → ratification → context design.
 
 ---
 

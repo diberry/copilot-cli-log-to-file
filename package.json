@@ -5,6 +5,13 @@
   "description": "Copilot CLI extension that logs each final response to a timestamped file (configurable path + filename).",
   "license": "MIT",
   "author": "diberry",
+  "bin": {
+    "extract-candidates": "./bin/extract-candidates.mjs"
+  },
+  "scripts": {
+    "extract:candidates": "node bin/extract-candidates.mjs",
+    "test": "node test/config.test.mjs && node test/tokens.test.mjs && node test/yaml.test.mjs && node test/extract.test.mjs"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/diberry/copilot-cli-log-to-file.git"
