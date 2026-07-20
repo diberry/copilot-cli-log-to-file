@@ -157,6 +157,9 @@ The capture layer is the observation stage for portable personal context. Candid
 
 ```bash
 npm run extract:candidates -- --input copilot-response-log --days 7 --output candidate-review.yaml
+
+# Add Copilot CLI /chronicle as an evidence source when available:
+npm run extract:candidates -- --source both --output candidate-review.yaml
 ```
 
 Every emitted candidate starts with `status: pending`. See `docs/pipeline-design.md` for the observation → candidate → ratification → context design.

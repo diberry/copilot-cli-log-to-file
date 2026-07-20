@@ -45,6 +45,22 @@ Current signal families:
 
 The extractor does **not** decide truth. It proposes candidates with frequency, session, source-file, and quote evidence so a person can decide.
 
+## Evidence sources
+
+YAML capture files remain the default source. The CLI can also read Copilot CLI `/chronicle` as an additive source with `--source chronicle` or `--source both`.
+
+Chronicle support opens `%USERPROFILE%\.copilot\session-store.db` read-only through Node's built-in experimental `node:sqlite` module. If the runtime does not provide `node:sqlite`, or the store is not present, extraction records a notice and continues with any available YAML evidence instead of crashing. This keeps the repo free of runtime npm dependencies while making chronicle evidence available on supported Node versions.
+
+Chronicle `turns` rows normalize to the same internal observation shape as capture YAML:
+
+- `timestamp`
+- `sessionId`
+- `prompt` from `turns.user_message`
+- `response` from `turns.assistant_response`
+- optional file, ref, and usage evidence from `session_files`, `session_refs`, and `assistant_usage_events`
+
+The window filter compares the first 10 characters of chronicle timestamps to avoid problems across SQLite text timestamp formats. When `--source both` is used, duplicated turns are de-duped before aggregation.
+
 ## Deduplication and confidence
 
 Candidates are grouped by normalized signal keys:
@@ -148,3 +164,9 @@ Publishing should be a separate PR so a context change is distinct from candidat
 ## Relationship to Copilot CLI Memory
 
 This is not a duplicate of Copilot CLI Memory. The pipeline is vendor-neutral and portable across AI surfaces, stores file-owned inspectable evidence, and requires a strict no-auto-promotion human gate before context becomes canonical. Copilot Memory is single-vendor, provider-hosted, and closer to store-now/downvote-later; this pipeline is evidence-first and approve-before-publish.
+
+## Relationship to Copilot CLI /chronicle
+
+`/chronicle` has real overlap with this project. It already keeps a local raw session feed and provides retrospective insights/search across Copilot surfaces, so it overlaps both our capture layer and the "read a week of sessions to surface patterns" side of extraction.
+
+The capture layer's remaining edge is human-owned plain files and portability beyond Copilot surfaces. The pipeline's stronger distinction is what `/chronicle` does not do: a ratification gate that promotes reviewed candidates into a canonical, vendor-neutral portable rules corpus. Chronicle can be an evidence source; it is not the canonical context publisher.

@@ -21,6 +21,8 @@ function parseArgs(argv) {
     else if (arg === "--since") opts.since = requireValue(argv, ++i, arg);
     else if (arg === "--output" || arg === "-o") opts.output = requireValue(argv, ++i, arg);
     else if (arg === "--min-count") opts.minCount = Number(requireValue(argv, ++i, arg));
+    else if (arg === "--source") opts.source = requireValue(argv, ++i, arg);
+    else if (arg === "--chronicle-db") opts.chronicleDb = requireValue(argv, ++i, arg);
     else if (arg === "--help" || arg === "-h") {
       process.stdout.write([
         "Usage: node bin\\extract-candidates.mjs [options]",
@@ -31,6 +33,8 @@ function parseArgs(argv) {
         "  --since <iso-date>  Explicit start timestamp/date",
         "  --output <file>     Candidate review YAML path",
         "  --min-count <n>     Minimum repeated observations per candidate (default: 2)",
+        "  --source <source>   Evidence source: yaml, chronicle, or both (default: yaml)",
+        "  --chronicle-db <db> Override /chronicle SQLite store path",
         "",
       ].join("\n"));
       process.exit(0);
@@ -44,6 +48,9 @@ function parseArgs(argv) {
   }
   if (opts.minCount !== undefined && (!Number.isInteger(opts.minCount) || opts.minCount <= 0)) {
     throw new Error("--min-count must be a positive integer");
+  }
+  if (opts.source !== undefined && !["yaml", "chronicle", "both"].includes(opts.source)) {
+    throw new Error("--source must be yaml, chronicle, or both");
   }
   return opts;
 }
