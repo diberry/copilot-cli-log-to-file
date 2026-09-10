@@ -13,6 +13,22 @@ const DEFAULTS = {
   filenamePattern: "{timestamp}-{prompt30}.yaml",
   includeAllMessages: false,
   fileFormat: "yaml",
+  capture: {
+    attachments: false,
+    reasoning: false,
+    toolCalls: false,
+    toolResults: false,
+    usage: false,
+    model: false,
+    skills: false,
+    subagents: false,
+    permissions: false,
+    errors: false,
+    lifecycle: false,
+    turns: false,
+    schedules: false,
+    notifications: false,
+  },
 };
 
 // ─── Config loading ───────────────────────────────────────────────────────────
@@ -36,7 +52,7 @@ function normalizeFormat(val) {
  * @returns {typeof DEFAULTS}
  */
 export function loadConfig(extensionDir, logWarn = () => {}) {
-  let cfg = { ...DEFAULTS };
+  let cfg = { ...DEFAULTS, capture: { ...DEFAULTS.capture } };
 
   // Layer 2: config.json next to extension.mjs
   const configPath = resolve(extensionDir, "config.json");
@@ -49,6 +65,14 @@ export function loadConfig(extensionDir, logWarn = () => {}) {
     if (parsed.fileFormat !== undefined) {
       const norm = normalizeFormat(parsed.fileFormat);
       if (norm !== null) cfg.fileFormat = norm;
+    }
+    // Capture toggles from config.json
+    if (parsed.capture && typeof parsed.capture === "object") {
+      for (const key of Object.keys(DEFAULTS.capture)) {
+        if (parsed.capture[key] !== undefined) {
+          cfg.capture[key] = Boolean(parsed.capture[key]);
+        }
+      }
     }
   } catch (err) {
     if (err.code !== "ENOENT") {
@@ -65,6 +89,21 @@ export function loadConfig(extensionDir, logWarn = () => {}) {
   if (process.env.COPILOT_LOG_FORMAT) {
     const norm = normalizeFormat(process.env.COPILOT_LOG_FORMAT);
     if (norm !== null) cfg.fileFormat = norm;
+  }
+
+  // Capture toggles from env vars — individual overrides
+  for (const key of Object.keys(DEFAULTS.capture)) {
+    const envKey = `COPILOT_LOG_CAPTURE_${key.toUpperCase()}`;
+    if (process.env[envKey] !== undefined) {
+      cfg.capture[key] = process.env[envKey] === "true";
+    }
+  }
+
+  // Master override: COPILOT_LOG_CAPTURE_ALL=true enables all capture toggles
+  if (process.env.COPILOT_LOG_CAPTURE_ALL === "true") {
+    for (const key of Object.keys(cfg.capture)) {
+      cfg.capture[key] = true;
+    }
   }
 
   return cfg;
@@ -314,16 +353,212 @@ function emitBlockScalarValue(value, indent) {
   return `|${indicator}${chomp}\n${emittedContent}`;
 }
 
+// ─── Captured data serialization helpers ─────────────────────────────────────
+
+/** Safely emit a primitive value as YAML: double-quote strings, booleans/numbers/null as-is. */
+function emitYamlPrimitive(val) {
+  if (val === null || val === undefined) return "null";
+  if (typeof val === "boolean") return val ? "true" : "false";
+  if (typeof val === "number") return String(val);
+  return emitDoubleQuotedFull(String(val));
+}
+
+/** Emit a YAML mapping of primitives. */
+function emitYamlMapping(obj, indent) {
+  if (!obj || typeof obj !== "object" || Object.keys(obj).length === 0) return "{}";
+  let out = "\n";
+  for (const [key, val] of Object.entries(obj)) {
+    out += `${indent}${key}: ${emitYamlPrimitive(val)}\n`;
+  }
+  return out.trimEnd();
+}
+
+/**
+ * Append captured data as YAML sections, only when enabled AND non-empty.
+ * Stable order: attachments, reasoning, toolCalls, usage, model, skills, subagents, permissions, errors, lifecycle, turns, schedules, notifications.
+ * Data-driven approach: each section defined by {key, toggle, captureKey, emitter}.
+ */
+function appendCapturedDataYaml(captured, toggles) {
+  let out = "";
+
+  // Special handling for attachments (custom structure)
+  if (toggles.attachments && captured.attachments?.length > 0) {
+    out += "attachments:\n";
+    for (const att of captured.attachments) {
+      out += `  - type: ${emitYamlPrimitive(att.type)}\n`;
+      if (att.path) out += `    path: ${emitYamlPrimitive(att.path)}\n`;
+      if (att.displayName) out += `    displayName: ${emitYamlPrimitive(att.displayName)}\n`;
+    }
+  }
+
+  // Special handling for reasoning (block scalar content)
+  if (toggles.reasoning && captured.reasoning?.length > 0) {
+    out += "reasoning:\n";
+    for (const r of captured.reasoning) {
+      out += "  - " + emitBlockScalarValue(r.content || "", "    ") + "\n";
+    }
+  }
+
+  // Special handling for tools (merged start + complete, both toggles feed one block)
+  // NOTE: toolCalls+toolResults both feed the single "tools:" YAML section.
+  if ((toggles.toolCalls || toggles.toolResults) && captured.tools?.length > 0) {
+    out += "tools:\n";
+    for (const t of captured.tools) {
+      out += `  - toolCallId: ${emitYamlPrimitive(t.toolCallId)}\n`;
+      if (t.toolName) out += `    toolName: ${emitYamlPrimitive(t.toolName)}\n`;
+      // Emit arguments/result when defined (not just truthy) to preserve empty strings
+      if (t.arguments !== undefined) out += `    arguments: ${emitBlockScalarValue(t.arguments, "      ")}\n`;
+      if (t.success !== undefined) out += `    success: ${t.success}\n`;
+      if (t.result !== undefined) out += `    result: ${emitBlockScalarValue(t.result, "      ")}\n`;
+      if (t.error) out += `    error: ${emitYamlPrimitive(t.error)}\n`;
+    }
+  }
+
+  // Standard sections: emit array of mappings using emitYamlMapping
+  const standardSections = [
+    { key: "usage", toggle: "usage", captureKey: "usage" },
+    { key: "model", toggle: "model", captureKey: "model" },
+    { key: "skills", toggle: "skills", captureKey: "skills" },
+    { key: "subagents", toggle: "subagents", captureKey: "subagents" },
+    { key: "permissions", toggle: "permissions", captureKey: "permissions" },
+    { key: "errors", toggle: "errors", captureKey: "errors" },
+    { key: "lifecycle", toggle: "lifecycle", captureKey: "lifecycle" },
+    { key: "turns", toggle: "turns", captureKey: "turns" },
+    { key: "schedules", toggle: "schedules", captureKey: "schedules" },
+    { key: "notifications", toggle: "notifications", captureKey: "notifications" },
+  ];
+
+  for (const { key, toggle, captureKey } of standardSections) {
+    if (toggles[toggle] && captured[captureKey]?.length > 0) {
+      out += `${key}:\n`;
+      for (const item of captured[captureKey]) {
+        out += "  - " + emitYamlMapping(item, "    ");
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Append captured data as txt sections.
+ */
+function appendCapturedDataTxt(captured, toggles) {
+  let out = "";
+  const sep = "─".repeat(60);
+
+  if (toggles.attachments && captured.attachments?.length > 0) {
+    out += `\n\n${sep}\nAttachments\n${sep}\n`;
+    captured.attachments.forEach((att, i) => {
+      out += `\n[Attachment ${i + 1}] ${att.type}: ${att.displayName || att.path}\n`;
+    });
+  }
+
+  if (toggles.reasoning && captured.reasoning?.length > 0) {
+    out += `\n\n${sep}\nReasoning\n${sep}\n`;
+    captured.reasoning.forEach((r, i) => {
+      out += `\n[Reasoning ${i + 1}]\n${r.content}\n`;
+    });
+  }
+
+  if ((toggles.toolCalls || toggles.toolResults) && captured.tools?.length > 0) {
+    out += `\n\n${sep}\nTools\n${sep}\n`;
+    captured.tools.forEach((t, i) => {
+      out += `\n[Tool ${i + 1}] ${t.toolName} (${t.toolCallId})\n`;
+      if (t.arguments !== undefined) out += `Arguments: ${t.arguments}\n`;
+      if (t.success !== undefined) out += `Success: ${t.success}\n`;
+      if (t.result !== undefined) out += `Result: ${t.result}\n`;
+      if (t.error) out += `Error: ${t.error}\n`;
+    });
+  }
+
+  if (toggles.usage && captured.usage?.length > 0) {
+    out += `\n\n${sep}\nUsage\n${sep}\n`;
+    captured.usage.forEach((u, i) => {
+      out += `\n[Usage ${i + 1}]\n${JSON.stringify(u, null, 2)}\n`;
+    });
+  }
+
+  if (toggles.model && captured.model?.length > 0) {
+    out += `\n\n${sep}\nModel\n${sep}\n`;
+    captured.model.forEach((m, i) => {
+      out += `\n[Model ${i + 1}]\n${JSON.stringify(m, null, 2)}\n`;
+    });
+  }
+
+  if (toggles.skills && captured.skills?.length > 0) {
+    out += `\n\n${sep}\nSkills\n${sep}\n`;
+    captured.skills.forEach((s, i) => {
+      out += `\n[Skill ${i + 1}]\n${JSON.stringify(s, null, 2)}\n`;
+    });
+  }
+
+  if (toggles.subagents && captured.subagents?.length > 0) {
+    out += `\n\n${sep}\nSubagents\n${sep}\n`;
+    captured.subagents.forEach((sa, i) => {
+      out += `\n[Subagent ${i + 1}]\n${JSON.stringify(sa, null, 2)}\n`;
+    });
+  }
+
+  if (toggles.permissions && captured.permissions?.length > 0) {
+    out += `\n\n${sep}\nPermissions\n${sep}\n`;
+    captured.permissions.forEach((p, i) => {
+      out += `\n[Permission ${i + 1}]\n${JSON.stringify(p, null, 2)}\n`;
+    });
+  }
+
+  if (toggles.errors && captured.errors?.length > 0) {
+    out += `\n\n${sep}\nErrors\n${sep}\n`;
+    captured.errors.forEach((e, i) => {
+      out += `\n[Error ${i + 1}]\n${JSON.stringify(e, null, 2)}\n`;
+    });
+  }
+
+  if (toggles.lifecycle && captured.lifecycle?.length > 0) {
+    out += `\n\n${sep}\nLifecycle\n${sep}\n`;
+    captured.lifecycle.forEach((lc, i) => {
+      out += `\n[Lifecycle ${i + 1}]\n${JSON.stringify(lc, null, 2)}\n`;
+    });
+  }
+
+  if (toggles.turns && captured.turns?.length > 0) {
+    out += `\n\n${sep}\nTurns\n${sep}\n`;
+    captured.turns.forEach((tn, i) => {
+      out += `\n[Turn ${i + 1}]\n${JSON.stringify(tn, null, 2)}\n`;
+    });
+  }
+
+  if (toggles.schedules && captured.schedules?.length > 0) {
+    out += `\n\n${sep}\nSchedules\n${sep}\n`;
+    captured.schedules.forEach((sc, i) => {
+      out += `\n[Schedule ${i + 1}]\n${JSON.stringify(sc, null, 2)}\n`;
+    });
+  }
+
+  if (toggles.notifications && captured.notifications?.length > 0) {
+    out += `\n\n${sep}\nNotifications\n${sep}\n`;
+    captured.notifications.forEach((n, i) => {
+      out += `\n[Notification ${i + 1}]\n${JSON.stringify(n, null, 2)}\n`;
+    });
+  }
+
+  return out;
+}
+
+// ─── File content builders ────────────────────────────────────────────────────
+
 /**
  * Build a complete, valid YAML mapping document.
- * Keys in order: timestamp, sessionId, prompt, [messages], response.
+ * Keys in order: timestamp, sessionId, prompt, [messages], response, [captured sections].
  * Scalar strings use double-quoted style; multi-line values use literal block scalars (|-).
  *
- * @param {{ timestamp: Date, sessionId: string, prompt: string, content: string, allMessages: string[] }} data
+ * @param {{ timestamp: Date, sessionId: string, prompt: string, content: string, allMessages: string[], capturedData?: any }} data
  * @param {boolean} includeAllMessages
+ * @param {any} [capturedData]  Optional captured event data.
+ * @param {{capture: typeof DEFAULTS.capture}} [cfg]  Optional config with capture toggles.
  * @returns {string}
  */
-function buildYamlContent(data, includeAllMessages) {
+function buildYamlContent(data, includeAllMessages, capturedData, cfg) {
   const { timestamp, sessionId, prompt, content, allMessages } = data;
   const isoTs = timestamp.toISOString();
 
@@ -340,18 +575,25 @@ function buildYamlContent(data, includeAllMessages) {
   }
 
   out += `response: ${emitBlockScalarValue(content, "  ")}\n`;
+
+  // Append captured sections in stable order if present
+  if (capturedData && cfg?.capture) {
+    out += appendCapturedDataYaml(capturedData, cfg.capture);
+  }
+
   return out;
 }
 
 /**
  * Build the full file content string.
- * @param {{ timestamp: Date, sessionId: string, prompt: string, content: string, allMessages: string[] }} data
+ * @param {{ timestamp: Date, sessionId: string, prompt: string, content: string, allMessages: string[], capturedData?: any }} data
  * @param {"yaml"|"txt"|string} fileFormat  "txt" for plain text; everything else (incl. legacy "md") → yaml.
  * @param {boolean} includeAllMessages
+ * @param {{capture: typeof DEFAULTS.capture}} [cfg]  Optional config with capture toggles.
  * @returns {string}
  */
-export function buildFileContent(data, fileFormat, includeAllMessages) {
-  const { timestamp, sessionId, prompt, content, allMessages } = data;
+export function buildFileContent(data, fileFormat, includeAllMessages, cfg) {
+  const { timestamp, sessionId, prompt, content, allMessages, capturedData } = data;
   const isoTs = timestamp.toISOString();
 
   if (fileFormat === "txt") {
@@ -367,9 +609,13 @@ export function buildFileContent(data, fileFormat, includeAllMessages) {
         body += `\n[Message ${i + 1}]\n${m}\n`;
       });
     }
+    // Append captured data in txt format if present
+    if (capturedData && cfg?.capture) {
+      body += appendCapturedDataTxt(capturedData, cfg.capture);
+    }
     return body;
   }
 
   // yaml (default) — also handles legacy "md" and any unknown value
-  return buildYamlContent(data, includeAllMessages);
+  return buildYamlContent(data, includeAllMessages, capturedData, cfg);
 }

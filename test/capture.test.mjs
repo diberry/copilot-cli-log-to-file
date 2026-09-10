@@ -1,0 +1,487 @@
+/**
+ * test/capture.test.mjs
+ *
+ * Tests for new capture toggles, env overrides, and YAML enrichment.
+ * Run with:  node test/capture.test.mjs
+ */
+
+import {
+  loadConfig,
+  buildFileContent,
+} from "../.github/extensions/copilot-cli-log-to-file/lib/format.mjs";
+
+import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import jsyaml from "js-yaml";
+
+let passed = 0;
+let failed = 0;
+
+function assert(description, actual, expected) {
+  if (actual === expected) {
+    console.error(`  ✓ ${description}`);
+    passed++;
+  } else {
+    console.error(`  ✗ ${description}`);
+    console.error(`    expected: ${JSON.stringify(expected)}`);
+    console.error(`    actual:   ${JSON.stringify(actual)}`);
+    failed++;
+  }
+}
+
+function assertContains(description, actual, substring) {
+  if (typeof actual === "string" && actual.includes(substring)) {
+    console.error(`  ✓ ${description}`);
+    passed++;
+  } else {
+    console.error(`  ✗ ${description}`);
+    console.error(`    expected to contain: ${JSON.stringify(substring)}`);
+    console.error(`    actual: ${JSON.stringify(actual)}`);
+    failed++;
+  }
+}
+
+function assertNotContains(description, actual, substring) {
+  if (typeof actual === "string" && !actual.includes(substring)) {
+    console.error(`  ✓ ${description}`);
+    passed++;
+  } else {
+    console.error(`  ✗ ${description}`);
+    console.error(`    expected NOT to contain: ${JSON.stringify(substring)}`);
+    console.error(`    actual: ${JSON.stringify(actual)}`);
+    failed++;
+  }
+}
+
+// ─── Capture toggles defaults ─────────────────────────────────────────────────
+console.error("\nCapture toggles defaults:");
+
+{
+  const tmp = mkdtempSync(join(tmpdir(), "clt-test-"));
+  try {
+    const cfg = loadConfig(tmp);
+    assert("defaults: attachments off", cfg.capture.attachments, false);
+    assert("defaults: reasoning off", cfg.capture.reasoning, false);
+    assert("defaults: toolCalls off", cfg.capture.toolCalls, false);
+    assert("defaults: toolResults off", cfg.capture.toolResults, false);
+    assert("defaults: usage off", cfg.capture.usage, false);
+    assert("defaults: model off", cfg.capture.model, false);
+    assert("defaults: skills off", cfg.capture.skills, false);
+    assert("defaults: subagents off", cfg.capture.subagents, false);
+    assert("defaults: permissions off", cfg.capture.permissions, false);
+    assert("defaults: errors off", cfg.capture.errors, false);
+    assert("defaults: lifecycle off", cfg.capture.lifecycle, false);
+    assert("defaults: turns off", cfg.capture.turns, false);
+    assert("defaults: schedules off", cfg.capture.schedules, false);
+    assert("defaults: notifications off", cfg.capture.notifications, false);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ─── Capture toggles from config.json ─────────────────────────────────────────
+console.error("\nCapture toggles from config.json:");
+
+{
+  const tmp = mkdtempSync(join(tmpdir(), "clt-test-"));
+  try {
+    writeFileSync(
+      join(tmp, "config.json"),
+      JSON.stringify({
+        capture: {
+          attachments: true,
+          reasoning: true,
+          toolCalls: true,
+          usage: true,
+        },
+      }),
+      "utf8"
+    );
+    const cfg = loadConfig(tmp);
+    assert("config.json: attachments on", cfg.capture.attachments, true);
+    assert("config.json: reasoning on", cfg.capture.reasoning, true);
+    assert("config.json: toolCalls on", cfg.capture.toolCalls, true);
+    assert("config.json: usage on", cfg.capture.usage, true);
+    assert("config.json: model still off", cfg.capture.model, false);
+    assert("config.json: skills still off", cfg.capture.skills, false);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ─── Capture toggles from env vars ────────────────────────────────────────────
+console.error("\nCapture toggles from env vars:");
+
+{
+  const tmp = mkdtempSync(join(tmpdir(), "clt-test-"));
+  try {
+    writeFileSync(
+      join(tmp, "config.json"),
+      JSON.stringify({
+        capture: {
+          attachments: false,
+          reasoning: false,
+        },
+      }),
+      "utf8"
+    );
+    process.env.COPILOT_LOG_CAPTURE_ATTACHMENTS = "true";
+    process.env.COPILOT_LOG_CAPTURE_REASONING = "true";
+    process.env.COPILOT_LOG_CAPTURE_TOOLCALLS = "true";
+    const cfg = loadConfig(tmp);
+    assert("env: attachments wins over config.json", cfg.capture.attachments, true);
+    assert("env: reasoning wins over config.json", cfg.capture.reasoning, true);
+    assert("env: toolCalls set by env", cfg.capture.toolCalls, true);
+    delete process.env.COPILOT_LOG_CAPTURE_ATTACHMENTS;
+    delete process.env.COPILOT_LOG_CAPTURE_REASONING;
+    delete process.env.COPILOT_LOG_CAPTURE_TOOLCALLS;
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ─── Master CAPTURE_ALL override ──────────────────────────────────────────────
+console.error("\nMaster CAPTURE_ALL override:");
+
+{
+  const tmp = mkdtempSync(join(tmpdir(), "clt-test-"));
+  try {
+    writeFileSync(
+      join(tmp, "config.json"),
+      JSON.stringify({
+        capture: {
+          attachments: false,
+        },
+      }),
+      "utf8"
+    );
+    process.env.COPILOT_LOG_CAPTURE_ALL = "true";
+    const cfg = loadConfig(tmp);
+    assert("CAPTURE_ALL: attachments on", cfg.capture.attachments, true);
+    assert("CAPTURE_ALL: reasoning on", cfg.capture.reasoning, true);
+    assert("CAPTURE_ALL: toolCalls on", cfg.capture.toolCalls, true);
+    assert("CAPTURE_ALL: usage on", cfg.capture.usage, true);
+    assert("CAPTURE_ALL: model on", cfg.capture.model, true);
+    assert("CAPTURE_ALL: skills on", cfg.capture.skills, true);
+    assert("CAPTURE_ALL: subagents on", cfg.capture.subagents, true);
+    assert("CAPTURE_ALL: permissions on", cfg.capture.permissions, true);
+    assert("CAPTURE_ALL: errors on", cfg.capture.errors, true);
+    assert("CAPTURE_ALL: lifecycle on", cfg.capture.lifecycle, true);
+    assert("CAPTURE_ALL: turns on", cfg.capture.turns, true);
+    assert("CAPTURE_ALL: schedules on", cfg.capture.schedules, true);
+    assert("CAPTURE_ALL: notifications on", cfg.capture.notifications, true);
+    delete process.env.COPILOT_LOG_CAPTURE_ALL;
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ─── buildFileContent with captured data ──────────────────────────────────────
+console.error("\nbuildFileContent with captured data:");
+
+const ts = new Date("2026-07-14T10:00:00.000Z");
+const baseData = {
+  timestamp: ts,
+  sessionId: "test1234",
+  prompt: "Test prompt",
+  content: "Test response",
+  allMessages: [],
+  capturedData: {
+    attachments: [{ type: "file", path: "/test/file.txt", displayName: "file.txt" }],
+    reasoning: [{ content: "Thinking about the problem..." }],
+    tools: [
+      {
+        toolCallId: "call_1",
+        toolName: "grep",
+        arguments: '{"pattern":"test"}',
+        success: true,
+        result: "Found 3 matches",
+      },
+    ],
+    usage: [{ model: "gpt-5", inputTokens: 100, outputTokens: 50 }],
+    model: [],
+    skills: [],
+    subagents: [],
+    permissions: [],
+    errors: [],
+    lifecycle: [],
+    turns: [],
+    schedules: [],
+    notifications: [],
+  },
+};
+
+// Conservative default: nothing extra emitted when all toggles off
+{
+  const cfg = { capture: { attachments: false, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(baseData, "yaml", false, cfg);
+  assertContains("conservative: timestamp present", out, "timestamp:");
+  assertContains("conservative: prompt present", out, "prompt:");
+  assertContains("conservative: response present", out, "response:");
+  assertNotContains("conservative: no attachments", out, "attachments:");
+  assertNotContains("conservative: no reasoning", out, "reasoning:");
+  assertNotContains("conservative: no tools", out, "tools:");
+  assertNotContains("conservative: no usage", out, "usage:");
+}
+
+// With attachments enabled
+{
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(baseData, "yaml", false, cfg);
+  assertContains("attachments on: attachments section present", out, "attachments:");
+  assertContains("attachments on: file path present", out, "/test/file.txt");
+  assertNotContains("attachments on: no reasoning", out, "reasoning:");
+  assertNotContains("attachments on: no tools", out, "tools:");
+}
+
+// Attachment variant: directory
+{
+  const dirData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "directory", label: "test-dir", path: "/test/dir", displayName: "test-dir" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(dirData, "yaml", false, cfg);
+  assertContains("attachment variant directory: type emitted", out, "type:");
+  assertContains("attachment variant directory: directory value", out, "directory");
+  assertContains("attachment variant directory: path present", out, "/test/dir");
+  assertContains("attachment variant directory: displayName present", out, "test-dir");
+}
+
+// Attachment variant: selection
+{
+  const selectionData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "selection", label: "src.js:10-20", filePath: "/test/src.js", displayName: "src.js:10-20" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(selectionData, "yaml", false, cfg);
+  assertContains("attachment variant selection: type emitted", out, "type:");
+  assertContains("attachment variant selection: selection value", out, "selection");
+  assertContains("attachment variant selection: displayName present", out, "src.js:10-20");
+}
+
+// Attachment variant: github_reference
+{
+  const ghRefData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "github_reference", label: "Fix bug", title: "Fix bug", number: 123, url: "https://github.com/org/repo/issues/123", state: "open" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(ghRefData, "yaml", false, cfg);
+  assertContains("attachment variant github_reference: type emitted", out, "type:");
+  assertContains("attachment variant github_reference: github_reference value", out, "github_reference");
+  // Note: format.mjs only outputs type, path, and displayName, so title/number/url/state are captured but not emitted
+}
+
+// Attachment variant: blob (with displayName)
+{
+  const blobData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "blob", label: "image.png", displayName: "image.png", mimeType: "image/png" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(blobData, "yaml", false, cfg);
+  assertContains("attachment variant blob with displayName: type emitted", out, "type:");
+  assertContains("attachment variant blob with displayName: blob value", out, "blob");
+  assertContains("attachment variant blob with displayName: displayName present", out, "image.png");
+}
+
+// Attachment variant: blob (without displayName, fallback to unknown)
+{
+  const blobNoNameData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "blob", label: "(unknown)", mimeType: "application/octet-stream" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(blobNoNameData, "yaml", false, cfg);
+  assertContains("attachment variant blob without displayName: type emitted", out, "type:");
+  assertContains("attachment variant blob without displayName: blob value", out, "blob");
+  // Note: No displayName field should be present in output since it's undefined
+}
+
+// Attachment variant: extension_context
+{
+  const extContextData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      attachments: [{ type: "extension_context", label: "Extension Data", title: "Extension Data", extensionId: "test.extension" }],
+    },
+  };
+  const cfg = { capture: { attachments: true, reasoning: false, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(extContextData, "yaml", false, cfg);
+  assertContains("attachment variant extension_context: type emitted", out, "type:");
+  assertContains("attachment variant extension_context: extension_context value", out, "extension_context");
+  // Note: format.mjs only outputs type, path, and displayName, so title/extensionId are captured but not emitted
+}
+
+// With reasoning enabled
+{
+  const cfg = { capture: { attachments: false, reasoning: true, toolCalls: false, toolResults: false, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(baseData, "yaml", false, cfg);
+  assertContains("reasoning on: reasoning section present", out, "reasoning:");
+  assertContains("reasoning on: reasoning content present", out, "Thinking about the problem");
+  assertNotContains("reasoning on: no attachments", out, "attachments:");
+}
+
+// With toolCalls and toolResults enabled
+{
+  const cfg = { capture: { attachments: false, reasoning: false, toolCalls: true, toolResults: true, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(baseData, "yaml", false, cfg);
+  assertContains("tools on: tools section present", out, "tools:");
+  assertContains("tools on: toolCallId present", out, "call_1");
+  assertContains("tools on: toolName present", out, "grep");
+  assertContains("tools on: success present", out, "success:");
+  assertContains("tools on: result present", out, "Found 3 matches");
+}
+
+// With usage enabled
+{
+  const cfg = { capture: { attachments: false, reasoning: false, toolCalls: false, toolResults: false, usage: true, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(baseData, "yaml", false, cfg);
+  assertContains("usage on: usage section present", out, "usage:");
+  assertContains("usage on: model present", out, "gpt-5");
+  assertContains("usage on: inputTokens present", out, "inputTokens:");
+}
+
+// Empty-string payloads are preserved (fix #5)
+{
+  const emptyData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      tools: [
+        {
+          toolCallId: "call_empty",
+          toolName: "test",
+          arguments: "",  // Empty string should still be emitted
+          result: "",     // Empty string should still be emitted
+        },
+      ],
+    },
+  };
+  const cfg = { capture: { attachments: false, reasoning: false, toolCalls: true, toolResults: true, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(emptyData, "yaml", false, cfg);
+  assertContains("empty strings: arguments field present", out, "arguments:");
+  assertContains("empty strings: result field present", out, "result:");
+}
+
+// Duplicate toolCallId correlation regression test: simulates real merge logic
+{
+  // Simulate the actual extension's merge logic:
+  // 1. tool.execution_start creates entries with toolCallId/toolName/arguments
+  // 2. tool.execution_complete finds first UNRESOLVED (success===undefined) and adds success/result/error
+  const tools = [];
+  
+  // First start with toolCallId "dup"
+  tools.push({ toolCallId: "dup", toolName: "grep", arguments: "first" });
+  // Second start with the SAME toolCallId "dup"
+  tools.push({ toolCallId: "dup", toolName: "view", arguments: "second" });
+  
+  // First complete for "dup" should pair with first unresolved start (grep)
+  const first = tools.find(t => t.toolCallId === "dup" && t.success === undefined);
+  if (first) {
+    first.success = true;
+    first.result = "result1";
+  }
+  
+  // Second complete for "dup" should pair with second unresolved start (view)
+  const second = tools.find(t => t.toolCallId === "dup" && t.success === undefined);
+  if (second) {
+    second.success = false;
+    second.error = "error2";
+  }
+  
+  // Complete with no matching start (orphaned)
+  tools.push({ toolCallId: "orphan", success: true, result: "orphaned" });
+  
+  const duplicateData = {
+    ...baseData,
+    capturedData: {
+      ...baseData.capturedData,
+      tools,
+    },
+  };
+  
+  const cfg = { capture: { attachments: false, reasoning: false, toolCalls: true, toolResults: true, usage: false, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(duplicateData, "yaml", false, cfg);
+  
+  try {
+    const parsed = jsyaml.load(out);
+    assert("duplicate toolCallId: tools count", parsed.tools.length, 3);
+    
+    // First pair: toolCallId "dup", toolName "grep", with result1
+    assert("duplicate toolCallId: first pair toolName", parsed.tools[0].toolName, "grep");
+    assert("duplicate toolCallId: first pair result", parsed.tools[0].result, "result1");
+    assert("duplicate toolCallId: first pair success", parsed.tools[0].success, true);
+    
+    // Second pair: toolCallId "dup", toolName "view", with error2
+    assert("duplicate toolCallId: second pair toolName", parsed.tools[1].toolName, "view");
+    assert("duplicate toolCallId: second pair error", parsed.tools[1].error, "error2");
+    assert("duplicate toolCallId: second pair success", parsed.tools[1].success, false);
+    
+    // Orphaned complete: should still be recorded
+    assert("duplicate toolCallId: orphan toolCallId", parsed.tools[2].toolCallId, "orphan");
+    assert("duplicate toolCallId: orphan result", parsed.tools[2].result, "orphaned");
+  } catch (err) {
+    console.error(`  ✗ duplicate toolCallId: parse failed: ${err.message}`);
+    failed++;
+  }
+}
+
+// ─── YAML round-trip with captured data ───────────────────────────────────────
+console.error("\nYAML round-trip with captured data:");
+
+{
+  const cfg = { capture: { attachments: true, reasoning: true, toolCalls: true, toolResults: true, usage: true, model: false, skills: false, subagents: false, permissions: false, errors: false, lifecycle: false, turns: false, schedules: false, notifications: false } };
+  const out = buildFileContent(baseData, "yaml", false, cfg);
+
+  try {
+    const parsed = jsyaml.load(out);
+    assert("round-trip: parsed successfully", typeof parsed, "object");
+    assert("round-trip: timestamp", parsed.timestamp, "2026-07-14T10:00:00.000Z");
+    assert("round-trip: sessionId", parsed.sessionId, "test1234");
+    assert("round-trip: prompt", parsed.prompt, "Test prompt");
+    assert("round-trip: response", parsed.response, "Test response");
+    assert("round-trip: attachments is array", Array.isArray(parsed.attachments), true);
+    assert("round-trip: attachments length", parsed.attachments.length, 1);
+    assert("round-trip: attachment type", parsed.attachments[0].type, "file");
+    assert("round-trip: reasoning is array", Array.isArray(parsed.reasoning), true);
+    assert("round-trip: reasoning length", parsed.reasoning.length, 1);
+    assert("round-trip: tools is array", Array.isArray(parsed.tools), true);
+    assert("round-trip: tools length", parsed.tools.length, 1);
+    assert("round-trip: tool toolCallId", parsed.tools[0].toolCallId, "call_1");
+    assert("round-trip: usage is array", Array.isArray(parsed.usage), true);
+    assert("round-trip: usage length", parsed.usage.length, 1);
+    assert("round-trip: usage model", parsed.usage[0].model, "gpt-5");
+  } catch (err) {
+    console.error(`  ✗ round-trip: YAML parse failed: ${err.message}`);
+    failed++;
+  }
+}
+
+// ─── Summary ──────────────────────────────────────────────────────────────────
+console.error(`\n${"─".repeat(50)}`);
+console.error(`Results: ${passed} passed, ${failed} failed`);
+if (failed > 0) {
+  process.exit(1);
+} else {
+  console.error("All tests passed ✓");
+}
